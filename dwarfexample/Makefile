@@ -31,7 +31,7 @@ DEFS =		-DHAVE_CONFIG_H
 # ../libdwarf gets us to local headers and a libdwarf 
 # archive, usually, so we assume it.
 DIRINC =        $(srcdir)/../libdwarf 
-dwfwall =       
+dwfwall =		-Wall
 dwfsanitize =   
 dwfzlib =       -lz
 LIBS =		 -L../libdwarf -ldwarf -lelf $(dwfzlib)
@@ -50,8 +50,12 @@ all: simplereader frame1
 
 simplereader: $(srcdir)/simplereader.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c
 	$(CC) $(CFLAGS) $(srcdir)/simplereader.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c -o simplereader $(LDFLAGS)
+
 frame1: $(srcdir)/frame1.c
 	$(CC) $(CFLAGS) $(srcdir)/frame1.c -o frame1 $(LDFLAGS)
+
+get_dwarf_info: $(srcdir)/get_dwarf_info.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c
+	$(CC) $(CFLAGS) $(srcdir)/get_dwarf_info.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c -o $@ $(LDFLAGS)
 
 install: all
 	echo do no install
