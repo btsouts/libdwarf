@@ -58,36 +58,36 @@ skipunder(const char *v)
 static const char *
 ellipname(int res, int val_in, const char *v,const char *ty,int printonerr)
 {
-#ifndef TRIVIAL_NAMING
-    if (glflags.gf_check_dwarf_constants && checking_this_compiler()) {
-        DWARF_CHECK_COUNT(dwarf_constants_result,1);
-    }
-#endif
-    if (res != DW_DLV_OK) {
-        char buf[100];
-        char *n;
-        snprintf(buf,sizeof(buf),"<Unknown %s value 0x%x>",ty,val_in);
-        /* Capture any name error in DWARF constants */
-#ifndef TRIVIAL_NAMING
-        if (printonerr && glflags.gf_check_dwarf_constants &&
-            checking_this_compiler()) {
-            if (glflags.gf_check_verbose_mode) {
-                fprintf(stderr,"%s of %d (0x%x) is unknown to dwarfdump. "
-                    "Continuing. \n",ty,val_in,val_in );
-            }
-            DWARF_ERROR_COUNT(dwarf_constants_result,1);
-            DWARF_CHECK_ERROR_PRINT_CU();
-        }
-#else
-        /* This is for the tree-generation, not dwarfdump itself. */
-        if (printonerr) {
-            fprintf(stderr,"%s of %d (0x%x) is unknown to dwarfdump. "
-                "Continuing. \n",ty,val_in,val_in );
-        }
-#endif
-        n = makename(buf);
-        return n;
-    }
+// #ifndef TRIVIAL_NAMING
+//     if (glflags.gf_check_dwarf_constants && checking_this_compiler()) {
+//         DWARF_CHECK_COUNT(dwarf_constants_result,1);
+//     }
+// #endif
+//     if (res != DW_DLV_OK) {
+//         char buf[100];
+//         char *n;
+//         snprintf(buf,sizeof(buf),"<Unknown %s value 0x%x>",ty,val_in);
+//         /* Capture any name error in DWARF constants */
+// #ifndef TRIVIAL_NAMING
+//         if (printonerr && glflags.gf_check_dwarf_constants &&
+//             checking_this_compiler()) {
+//             if (glflags.gf_check_verbose_mode) {
+//                 fprintf(stderr,"%s of %d (0x%x) is unknown to dwarfdump. "
+//                     "Continuing. \n",ty,val_in,val_in );
+//             }
+//             DWARF_ERROR_COUNT(dwarf_constants_result,1);
+//             DWARF_CHECK_ERROR_PRINT_CU();
+//         }
+// #else
+//         /* This is for the tree-generation, not dwarfdump itself. */
+//         if (printonerr) {
+//             fprintf(stderr,"%s of %d (0x%x) is unknown to dwarfdump. "
+//                 "Continuing. \n",ty,val_in,val_in );
+//         }
+// #endif
+//         n = makename(buf);
+//         return n;
+//     }
     if (ellipsis) {
         return skipunder(v);
     }
