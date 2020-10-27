@@ -668,6 +668,8 @@ struct glflags_s glflags;
 #define KIND_SECTIONS_INFO     2
 #define KIND_VISITED_INFO      3
 
+boolean ellipsis = FALSE;
+
 /* dwarfdump_ctype table. See uritablebuild.c */
 static char dwarfdump_ctype_table[256] = {
 0, /* NUL 0x00 */
