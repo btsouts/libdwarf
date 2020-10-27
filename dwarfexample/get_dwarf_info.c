@@ -35,52 +35,6 @@
     It does to a bit of error checking as a help in ensuring
     that some code works properly... for error checks.
 
-    The --names
-    option adds some extra printing.
-
-    The --check
-    option does some interface and error checking.
-
-    Option new September 2016:
-        --dumpallnames=filepath
-    This causes all the strings from the .debug_info and .debug_types
-    sections to be written to 'filepath'. Any previous contents
-    of the file are wiped out.
-    This could be handy if you want to use the set of strings to
-    investigate ways to improve the density of strings in some way.
-
-    Options new 03 May 2015:
-    These options do something different.
-    They use specific DWARF5 package file libdwarf operations
-    as a way to ensure libdwarf works properly (these
-    specials used by the libdwarf regresson test suite).
-    Examples given assuming dwp object fissionb-ld-new.dwp
-    from the regressiontests
-        --tuhash=hashvalue
-        example: --tuhash=b0dd19898e8aa823
-        It prints a DIE.
-
-        --cuhash=hashvalue
-        example: --cuhash=1e9983f631642b1a
-        It prints a DIE.
-
-        --cufissionhash=hashvalue
-        example: --tufissionhash=1e9983f631642b1a
-        It prints the fission data for this hash.
-
-        --tufissionhash=hashvalue
-        example: --tufissionhash=b0dd19898e8aa823
-        It prints the fission data for this hash.
-
-        --fissionfordie=cunumber
-        example: --fissionfordie=5
-        For CU number 5 (0 is the initial CU/TU)
-        it accesses the CU/TU DIE and then
-        uses that DIE to get the fission data.
-
-    To use, try
-        make
-        ./simplereader simplereader
 */
 #include "config.h"
 
@@ -1744,6 +1698,12 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
 
     Dwarf_Off dieprint_cu_goffset = 0;
 
+    int die_indent_level = 0;
+
+    Dwarf_Off offset = 0;
+    Dwarf_Off overall_offset = 0;
+    int ores = 0;
+
     if (passnullerror) {
         errp = 0;
     } else {
@@ -1787,6 +1747,30 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
     // }
 
     /* ---------- */
+
+    ores = dwarf_dieoffset(print_me, &overall_offset, &podie_err);
+    if (ores != DW_DLV_OK) {
+        print_error(dbg, "dwarf_dieoffset", ores, podie_err);
+    }
+    ores = dwarf_die_CU_offset(print_me, &offset, &podie_err);
+    if (ores != DW_DLV_OK) {
+        print_error(dbg, "dwarf_die_CU_offset", ores, podie_err);
+    }
+
+    if (glflags.gf_show_global_offsets) {
+        printf("<%2d><0x%" DW_PR_XZEROS DW_PR_DUx
+            " GOFF=0x%" DW_PR_XZEROS DW_PR_DUx ">",
+            die_indent_level, (Dwarf_Unsigned)offset,
+            (Dwarf_Unsigned)overall_offset);
+    } else {
+        printf("<%2d><0x%" DW_PR_XZEROS DW_PR_DUx ">",
+            die_indent_level,
+            (Dwarf_Unsigned)offset);
+    }
+
+    /* Print using indentation */
+    printf("%*s%s",die_indent_level * 2 + 2," ",tagname);
+    printf("\n");
 
     atres = dwarf_attrlist(print_me, &atlist, &atcnt, &podie_err);
 
