@@ -76,6 +76,7 @@ enum line_flag_type_e {
 #include "../dwarfdump/checkutil.h"
 #include "../dwarfdump/addrmap.h"
 #include "../dwarfdump/glflags.h"
+#include "tracing-types.h"
 
 /* Used to try to avoid leakage when we hide errors. */
 #define DROP_ERROR_INSTANCE(d,r,e)       \
@@ -105,6 +106,15 @@ static int pd_dwarf_names_print_on_error = 1;
 #define ESB_S_CHAR_LENGTH 256
 
 boolean show_form_used = FALSE;
+
+/*  Allocate variables for lists    */
+compilationUnitList     *compilationUnitsHead=NULL, *compilationUnitsTail=NULL;
+// formalParametersList    *formalParametersHead, *formalParametersTail;
+// variablesList           *variablesHead, *variablesTail;
+baseTypesList           *baseTypesHead=NULL, *baseTypesTail=NULL;
+subProgramsList         *subProgramsHead=NULL, *subProgramsTail=NULL;
+globalVariablesList     *globalVariablesHead=NULL, *globalVariablesTail=NULL;
+int                     withinSubProgram = 0;
 
 static void read_cu_list(Dwarf_Debug dbg, Dwarf_Bool is_info);
 static void print_die_data(Dwarf_Debug dbg, Dwarf_Die print_me,
@@ -1416,240 +1426,183 @@ get_die_and_siblings(Dwarf_Debug dbg, Dwarf_Die in_die,
     }
     return;
 }
-static void
-get_addr(Dwarf_Attribute attr,Dwarf_Addr *val)
-{
-    Dwarf_Error error = 0;
-    int res;
-    Dwarf_Addr uval = 0;
-    Dwarf_Error *errp  = 0;
 
-    if(passnullerror) {
-        errp = 0;
-    } else {
-        errp = &error;
-    }
-
-    res = dwarf_formaddr(attr,&uval,errp);
-    if(res == DW_DLV_OK) {
-        *val = uval;
-        return;
-    }
-    return;
-}
 static void
-get_number(Dwarf_Attribute attr,Dwarf_Unsigned *val)
+getCompilationUnitAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
+    Dwarf_Off dieprint_cu_goffset, int level, struct srcfilesdata *sf,
+    Dwarf_Attribute *atlist, Dwarf_Signed atcnt)
 {
-    Dwarf_Error error = 0;
-    int res;
-    Dwarf_Signed sval = 0;
+    Dwarf_Error podie_err = 0;
+    Dwarf_Attribute attrib = 0;
+    int tres = 0;
+    Dwarf_Half tag = 0;
+    Dwarf_Error paerr = 0;
+    char lesb[ESB_S_CHAR_LENGTH];
     Dwarf_Unsigned uval = 0;
-    Dwarf_Error *errp  = 0;
 
-    if(passnullerror) {
-        errp = 0;
-    } else {
-        errp = &error;
-    }
-    res = dwarf_formudata(attr,&uval,errp);
-    if(res == DW_DLV_OK) {
-        *val = uval;
-        return;
-    }
-    res = dwarf_formsdata(attr,&sval,errp);
-    if(res == DW_DLV_OK) {
-        *val = sval;
-        return;
-    }
-    return;
-}
-static void
-print_subprog(Dwarf_Debug dbg,Dwarf_Die die,
-    int level,
-    struct srcfilesdata *sf,
-    const char *name)
-{
-    int res;
-    Dwarf_Error error = 0;
-    Dwarf_Attribute *attrbuf = 0;
-    Dwarf_Addr lowpc = 0;
-    Dwarf_Addr highpc = 0;
-    Dwarf_Signed attrcount = 0;
-    Dwarf_Signed i;
-    Dwarf_Unsigned filenum = 0;
-    Dwarf_Unsigned linenum = 0;
-    char *filename = 0;
-    Dwarf_Error *errp = 0;
+    for (int i = 0; i < atcnt; i++) 
+    {
+        Dwarf_Half attr;
+        int ares;
 
-    if(passnullerror) {
-        errp = 0;
-    } else {
-        errp = &error;
-    }
-    res = dwarf_attrlist(die,&attrbuf,&attrcount,errp);
-    if(res != DW_DLV_OK) {
-        return;
-    }
-    for(i = 0; i < attrcount ; ++i) {
-        Dwarf_Half aform;
-        res = dwarf_whatattr(attrbuf[i],&aform,errp);
-        if(res == DW_DLV_OK) {
-            if(aform == DW_AT_decl_file) {
-                Dwarf_Signed filenum_s = 0;
+        ares = dwarf_whatattr(atlist[i], &attr, &podie_err);
 
-                get_number(attrbuf[i],&filenum);
-                filenum_s = filenum;
-                /*  Would be good to evaluate filenum_s
-                    sanity here, ensuring filenum_s-1 is sensible. */
-                if((filenum > 0) && (sf->srcfilescount > (filenum_s-1))) {
-                    filename = sf->srcfiles[filenum_s-1];
-                }
-            }
-            if(aform == DW_AT_decl_line) {
-                get_number(attrbuf[i],&linenum);
-            }
-            if(aform == DW_AT_low_pc) {
-                get_addr(attrbuf[i],&lowpc);
-            }
-            if(aform == DW_AT_high_pc) {
-                /*  This will FAIL with DWARF4 highpc form
-                    of 'class constant'.  */
-                get_addr(attrbuf[i],&highpc);
-            }
-        }
-        dwarf_dealloc(dbg,attrbuf[i],DW_DLA_ATTR);
-    }
-    /*  Here let's test some alternative interfaces for high and low pc.
-        We only do both dwarf_highpc and dwarf_highpcb_b as
-        an error check. Do not do both yourself. */
-    if(checkoptionon){
-        int hres = 0;
-        int hresb = 0;
-        int lres = 0;
-        Dwarf_Addr althipc = 0;
-        Dwarf_Addr hipcoffset = 0;
-        Dwarf_Addr althipcb = 0;
-        Dwarf_Addr altlopc = 0;
-        Dwarf_Half highform = 0;
-        enum Dwarf_Form_Class highclass = 0;
+        attrib = atlist[i];
 
-        /*  Reusing errp before checking for err here is
-            bogus. FIXME. */
-        /*  Should work for DWARF 2/3 DW_AT_high_pc, and
-            all high_pc where the FORM is DW_FORM_addr
-            Avoid using this interface as of 2013. */
-        hres  = dwarf_highpc(die,&althipc,errp);
+        if (ares == DW_DLV_OK) {
+            /*  Check duplicated attributes; use brute force as the number of
+                attributes is quite small; the problem was detected with the
+                LLVM toolchain, generating more than 12 repeated attributes */
+            
+            /* Print using indentation */
 
-        /* Should work for all DWARF DW_AT_high_pc.  */
-        hresb = dwarf_highpc_b(die,&althipcb,&highform,&highclass,errp);
+            switch (attr) 
+            {
+                case DW_AT_low_pc:
+                case DW_AT_high_pc:
+                    {
+                        Dwarf_Half theform;
+                        int rv;
+                        int res = 0;
+                        Dwarf_Addr addr = 0;
 
-        lres = dwarf_lowpc(die,&altlopc,errp);
-        printf("high_pc checking %s ",name);
+                        rv = dwarf_whatform(attrib,&theform,&paerr);
+                        /*  Depending on the form and the attribute,
+                            process the form. */
+                        if (rv == DW_DLV_ERROR) {
+                            print_error(dbg, "dwarf_whatform cannot Find attr form",
+                                rv, paerr);
+                        } else if (rv == DW_DLV_NO_ENTRY) {
+                            break;
+                        }
 
-        if (hres == DW_DLV_OK) {
-            /* present, FORM addr */
-            printf("highpc   0x%" DW_PR_XZEROS DW_PR_DUx " ",
-                althipc);
-        } else if (hres == DW_DLV_ERROR) {
-            printf("dwarf_highpc() error not class address ");
-        } else {
-            /* absent */
-        }
-        if(hresb == DW_DLV_OK) {
-            /* present, FORM addr or const. */
-            if(highform == DW_FORM_addr) {
-                printf("highpcb  0x%" DW_PR_XZEROS DW_PR_DUx " ",
-                    althipcb);
-            } else {
-                if(lres == DW_DLV_OK) {
-                    hipcoffset = althipcb;
-                    althipcb = altlopc + hipcoffset;
-                    printf("highpcb  0x%" DW_PR_XZEROS DW_PR_DUx " "
-                        "highoff  0x%" DW_PR_XZEROS DW_PR_DUx " ",
-                        althipcb,hipcoffset);
-                } else {
-                    printf("highoff  0x%" DW_PR_XZEROS DW_PR_DUx " ",
-                        althipcb);
-                }
-            }
-        } else if (hresb == DW_DLV_ERROR) {
-            printf("dwarf_highpc_b() error!");
-        } else {
-            /* absent */
-        }
+                        // printf("getCompilationUnitAttributes: theform: 0x%X\n", theform);
+                        
+                        if (theform != DW_FORM_addr &&
+                            theform != DW_FORM_GNU_addr_index &&
+                            theform != DW_FORM_addrx) 
+                        {
+                            res = get_small_encoding_integer_and_name(dbg,
+                                attrib,
+                                &uval,
+                                /* attrname */ (const char *) NULL,
+                                /* err_string */ ( char *) NULL,
+                                (encoding_type_func) 0,
+                                &paerr, show_form_used);
 
-        /* Should work for all DWARF DW_AT_low_pc */
-        if (lres == DW_DLV_OK) {
-            /* present, FORM addr. */
-            printf("lowpc    0x%" DW_PR_XZEROS DW_PR_DUx " ",
-                altlopc);
-        } else if (lres == DW_DLV_ERROR) {
-            printf("dwarf_lowpc() error!");
-        } else {
-            /* absent. */
-        }
-        printf("\n");
+                            // printf("getCompilationUnitAttributes: uval: %llu\n", uval);
+                        }
+                        else
+                        {
+                            res = dwarf_formaddr(attrib, &addr, &paerr);
 
+                            // printf("getCompilationUnitAttributes: addr: 0x%llX\n", addr);
+                        }
+                        
+                        // esb_constructor(lesb);
 
+                        // get_attr_value(dbg, tag, print_me,
+                        //     dieprint_cu_goffset,
+                        //     attrib, sf->srcfiles, sf->srcfilescount,
+                        //     lesb, show_form_used, verbose);
 
-    }
-    if(namesoptionon && (filenum || linenum)) {
-        printf("<%3d> file: %" DW_PR_DUu " %s  line %"
-            DW_PR_DUu "\n",level,filenum,filename?filename:"",linenum);
-    }
-    if(namesoptionon && lowpc) {
-        printf("<%3d> low_pc : 0x%" DW_PR_DUx  "\n",
-            level, (Dwarf_Unsigned)lowpc);
-    }
-    if(namesoptionon && highpc) {
-        printf("<%3d> high_pc: 0x%" DW_PR_DUx  "\n",
-            level, (Dwarf_Unsigned)highpc);
-    }
-    dwarf_dealloc(dbg,attrbuf,DW_DLA_LIST);
-}
+                        // printf("getCompilationUnitAttributes: DW_AT_pc: %s\n", lesb);
 
-static void
-print_comp_dir(Dwarf_Debug dbg,Dwarf_Die die,
-    int level, struct srcfilesdata *sf)
-{
-    int res;
-    Dwarf_Error error = 0;
-    Dwarf_Attribute *attrbuf = 0;
-    Dwarf_Signed attrcount = 0;
-    Dwarf_Signed i;
-    Dwarf_Error *errp = 0;
+                        if(res == DW_DLV_OK) 
+                        {
+                            if (attr == DW_AT_low_pc) 
+                            {
+                                compilationUnitsTail->lowPC = addr;
+                            
+                                printf("getCompilationUnitAttributes: Compilation Unit Low PC: 0x%X\n", compilationUnitsTail->lowPC);
+                            } 
+                            else 
+                            { /* DW_AT_high_pc */
+                                compilationUnitsTail->highPC = compilationUnitsTail->lowPC + uval;
 
-    if(passnullerror) {
-        errp = 0;
-    } else {
-        errp = &error;
-    }
+                                printf("getCompilationUnitAttributes: Compilation Unit High PC: 0x%X (Offset: 0x%llX)\n", compilationUnitsTail->highPC, uval);
+                            }
+                        }
+                        else
+                        {
+                            printf("getCompilationUnitAttributes: res: %d\n", res);
+                        }
+                    }
+                    break;
+                case DW_AT_name:
+                case DW_AT_GNU_template_name:
+                    tres = dwarf_tag(print_me, &tag, &paerr);
 
-    res = dwarf_attrlist(die,&attrbuf,&attrcount,errp);
-    if(res != DW_DLV_OK) {
-        return;
-    }
-    sf->srcfilesres = dwarf_srcfiles(die,&sf->srcfiles,&sf->srcfilescount,
-        &error);
-    for(i = 0; i < attrcount ; ++i) {
-        Dwarf_Half aform;
-        res = dwarf_whatattr(attrbuf[i],&aform,errp);
-        if(res == DW_DLV_OK) {
-            if(aform == DW_AT_comp_dir) {
-                char *name = 0;
-                res = dwarf_formstring(attrbuf[i],&name,errp);
-                if(res == DW_DLV_OK) {
-                    printf(    "<%3d> compilation directory : \"%s\"\n",
-                        level,name);
-                }
-            }
-            if(aform == DW_AT_stmt_list) {
-                /* Offset of stmt list for this CU in .debug_line */
+                    if (tres == DW_DLV_ERROR) {
+                        tag = 0;
+                    } else if (tres == DW_DLV_NO_ENTRY) {
+                        tag = 0;
+                    } else {
+                        /* ok */
+                    }
+                    
+                    esb_constructor(compilationUnitsTail->name);
+                    
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount,
+                        compilationUnitsTail->name, show_form_used,verbose);
+
+                    printf("getCompilationUnitAttributes: Compilation Unit Name: %s\n", compilationUnitsTail->name);
+                    
+                    break;
+
+                case DW_AT_producer:
+                    esb_constructor(lesb);
+
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount,
+                        lesb, show_form_used,verbose);
+
+                    printf("getCompilationUnitAttributes: DW_AT_producer: %s\n", lesb);
+
+                    break;   
+                case DW_AT_language:
+                    esb_constructor(lesb);
+
+                    get_small_encoding_integer_and_name(dbg, attrib, &uval,
+                        "DW_AT_language", lesb,
+                        get_LANG_name, &paerr,
+                        show_form_used);
+
+                    printf("getCompilationUnitAttributes: DW_AT_language: %s\n", lesb);
+   
+                    break;
+                case DW_AT_stmt_list:
+                    esb_constructor(lesb);
+
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount, 
+                        lesb, show_form_used,verbose);
+                    
+                    printf("getCompilationUnitAttributes: DW_AT_stmt_list: %s\n", lesb);
+
+                    break; 
+                case DW_AT_comp_dir:
+                    esb_constructor(lesb);
+
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount, 
+                        lesb, show_form_used,verbose);
+
+                    printf("getCompilationUnitAttributes: DW_AT_comp_dir: %s\n", lesb);
+                    
+                    break; 
+                default:
+                    printf("getCompilationUnitAttributes: Skipped attribute: 0x%X\n", attr);
+
+                    break;
             }
         }
-        dwarf_dealloc(dbg,attrbuf[i],DW_DLA_ATTR);
+        else
+        { 
+            print_error(dbg, "dwarf_whatattr entry missing", ares, podie_err);
+        }
     }
-    dwarf_dealloc(dbg,attrbuf,DW_DLA_LIST);
 }
 
 static void
@@ -1684,8 +1637,8 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
     int localname = 0;
     int res = 0;
     Dwarf_Error *errp = 0;
-    Dwarf_Half formnum = 0;
-    const char *formname = 0;
+    // Dwarf_Half formnum = 0;
+    // const char *formname = 0;
     
     Dwarf_Signed i = 0;
     Dwarf_Signed atcnt = 0;
@@ -1697,8 +1650,6 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
     Dwarf_Off  DIE_overall_offset = 0;    /* DIE offset in .debug_info */
 
     Dwarf_Off dieprint_cu_goffset = 0;
-
-    int die_indent_level = 0;
 
     Dwarf_Off offset = 0;
     Dwarf_Off overall_offset = 0;
@@ -1760,16 +1711,17 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
     if (glflags.gf_show_global_offsets) {
         printf("<%2d><0x%" DW_PR_XZEROS DW_PR_DUx
             " GOFF=0x%" DW_PR_XZEROS DW_PR_DUx ">",
-            die_indent_level, (Dwarf_Unsigned)offset,
+            level, (Dwarf_Unsigned)offset,
             (Dwarf_Unsigned)overall_offset);
     } else {
         printf("<%2d><0x%" DW_PR_XZEROS DW_PR_DUx ">",
-            die_indent_level,
+            level,
             (Dwarf_Unsigned)offset);
     }
 
     /* Print using indentation */
-    printf("%*s%s",die_indent_level * 2 + 2," ",tagname);
+    /*  This is where top level constructs are printed  */
+    printf("%*s%s",level * 2 + 2," ",tagname);
     printf("\n");
 
     atres = dwarf_attrlist(print_me, &atlist, &atcnt, &podie_err);
@@ -1786,8 +1738,148 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
     // bSawHigh = FALSE;
 
     /* Get the offset for easy error reporting: This is not the CU die.  */
-    dwarf_die_offsets(print_me,&DIE_overall_offset,&DIE_offset,&podie_err);
+    dwarf_die_offsets(print_me, &DIE_overall_offset, &DIE_offset, &podie_err);
 
+    /*  Create data stractures  */
+    switch (tag)
+    {
+        case DW_TAG_compile_unit:
+            if (compilationUnitsHead == NULL)
+            {
+                compilationUnitsHead = (compilationUnitList *) malloc(sizeof(compilationUnitList));
+
+                compilationUnitsTail = compilationUnitsHead;
+            }
+            else
+            {
+                compilationUnitsTail = (compilationUnitList *) malloc(sizeof(compilationUnitList));
+            }
+            
+            compilationUnitsTail->next = NULL;
+
+            withinSubProgram = 0;
+
+            getCompilationUnitAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt);
+
+            break;
+        case DW_TAG_base_type:
+            if (baseTypesHead == NULL)
+            {
+                baseTypesHead = (baseTypesList *) malloc(sizeof(baseTypesList));
+
+                baseTypesTail = baseTypesHead;
+            }
+            else
+            {
+                baseTypesTail = (baseTypesList *) malloc(sizeof(baseTypesList));
+            }
+            
+            baseTypesTail->isPointer = 0;
+            baseTypesTail->globalOffset = overall_offset;
+            baseTypesTail->compilationUnit = compilationUnitsTail;
+            baseTypesTail->next = NULL;
+
+            break;
+        case DW_TAG_variable:
+            if (withinSubProgram)
+            {
+                if (subProgramsTail->localVariablesHead == NULL)
+                {
+                    subProgramsTail->localVariablesHead = (localVariablesList *) malloc(sizeof(localVariablesList));
+
+                    subProgramsTail->localVariablesTail = subProgramsTail->localVariablesHead;
+                }
+                else
+                {
+                    subProgramsTail->localVariablesTail = (localVariablesList *) malloc(sizeof(localVariablesList));
+                }
+                
+                subProgramsTail->localVariablesTail->isTraced = 0;
+                subProgramsTail->localVariablesTail->compilationUnit = compilationUnitsTail;
+                subProgramsTail->localVariablesTail->next = NULL;
+            }
+            else
+            {
+                if (globalVariablesHead == NULL)
+                {
+                    globalVariablesHead = (globalVariablesList *) malloc(sizeof(globalVariablesList));
+
+                    globalVariablesTail = globalVariablesHead;
+                }
+                else
+                {
+                    globalVariablesTail = (globalVariablesList *) malloc(sizeof(globalVariablesList));
+                }
+                
+                globalVariablesTail->isTraced = 0;
+                globalVariablesTail->compilationUnit = compilationUnitsTail;
+                globalVariablesTail->next = NULL;
+            }
+
+            break;
+        case DW_TAG_subprogram:
+            withinSubProgram = 1;
+
+            if (subProgramsHead == NULL)
+            {
+                subProgramsHead = (subProgramsList *) malloc(sizeof(subProgramsList));
+
+                subProgramsTail = subProgramsHead;
+            }
+            else
+            {
+                subProgramsTail = (subProgramsList *) malloc(sizeof(subProgramsList));
+            }
+            
+            subProgramsTail->formalParametersHead = NULL;
+            subProgramsTail->formalParametersTail = NULL;
+            subProgramsTail->localVariablesHead = NULL;
+            subProgramsTail->localVariablesTail = NULL;
+            subProgramsTail->compilationUnit = compilationUnitsTail;
+            subProgramsTail->next = NULL;
+
+            break;
+        case DW_TAG_formal_parameter:
+            if (subProgramsTail->formalParametersHead == NULL)
+            {
+                subProgramsTail->formalParametersHead = (formalParametersList *) malloc(sizeof(formalParametersList));
+
+                subProgramsTail->formalParametersTail = subProgramsTail->formalParametersHead;
+            }
+            else
+            {
+                subProgramsTail->formalParametersTail = (formalParametersList *) malloc(sizeof(formalParametersList));
+            }
+            
+            subProgramsTail->formalParametersTail->isTraced = 0;
+            subProgramsTail->formalParametersTail->compilationUnit = compilationUnitsTail;
+            subProgramsTail->formalParametersTail->next = NULL;
+
+            break;
+        case DW_TAG_pointer_type:
+            if (baseTypesHead == NULL)
+            {
+                baseTypesHead = (baseTypesList *) malloc(sizeof(baseTypesList));
+
+                baseTypesTail = baseTypesHead;
+            }
+            else
+            {
+                baseTypesTail = (baseTypesList *) malloc(sizeof(baseTypesList));
+            }
+            
+            baseTypesTail->isPointer = 1;
+            baseTypesTail->globalOffset = overall_offset;
+            baseTypesTail->compilationUnit = compilationUnitsTail;
+            baseTypesTail->next = NULL;
+
+            break;
+        case DW_TAG_subrange_type:
+        case DW_TAG_lexical_block:
+        default:
+            break;
+    } 
+    
     for (i = 0; i < atcnt; i++) 
     {
         Dwarf_Half attr;
@@ -1806,7 +1898,7 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 dieprint_cu_goffset,
                 attr,
                 atlist[i],
-                TRUE, level, sf->srcfiles, sf->srcfilescount);
+                FALSE, level, sf->srcfiles, sf->srcfilescount);
         } 
         else
         { 
@@ -1822,28 +1914,29 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
         dwarf_dealloc(dbg, atlist, DW_DLA_LIST);
     }
 
-    if(namesoptionon ||checkoptionon) {
-        if( tag == DW_TAG_subprogram) {
-            if(namesoptionon) {
-                printf(    "<%3d> subprogram            : \"%s\"\n",level,name);
-            }
-            print_subprog(dbg,print_me,level,sf,name);
-        }
-        if( (namesoptionon) && (tag == DW_TAG_compile_unit ||
-            tag == DW_TAG_partial_unit ||
-            tag == DW_TAG_type_unit)) {
+    // if(namesoptionon ||checkoptionon) {
+    //     if( tag == DW_TAG_subprogram) {
+    //         if(namesoptionon) {
+    //             printf(    "<%3d> subprogram            : \"%s\"\n",level,name);
+    //         }
+    //         print_subprog(dbg,print_me,level,sf,name);
+    //     }
+    //     if( (namesoptionon) && (tag == DW_TAG_compile_unit ||
+    //         tag == DW_TAG_partial_unit ||
+    //         tag == DW_TAG_type_unit)) {
 
-            resetsrcfiles(dbg,sf);
-            printf(    "<%3d> source file           : \"%s\"\n",level,name);
-            print_comp_dir(dbg,print_me,level,sf);
-        }
-    } else {
-        printf("<%d> tag: %d %s  name: \"%s\"",level,tag,tagname,name);
-        if (formname) {
-            printf(" FORM 0x%x \"%s\"",formnum, formname);
-        }
-        printf("\n");
-    }
+    //         resetsrcfiles(dbg,sf);
+    //         printf(    "<%3d> source file           : \"%s\"\n",level,name);
+    //         print_comp_dir(dbg,print_me,level,sf);
+    //     }
+    // } else {
+    //     printf("<%d> tag: %d %s  name: \"%s\"",level,tag,tagname,name);
+    //     if (formname) {
+    //         printf(" FORM 0x%x \"%s\"",formnum, formname);
+    //     }
+    //     printf("\n");
+    // }
+
     if(!localname) {
         dwarf_dealloc(dbg,name,DW_DLA_STRING);
     }
@@ -5382,22 +5475,6 @@ print_range_attribute(Dwarf_Debug dbg,
     If we don't do the TAG check we might report "t.c"
     as a questionable DW_AT_name. Which would be silly.
 */
-// static int
-// dot_ok_in_identifier(int tag,
-//     Dwarf_Die die,
-//     const char *val)
-// {
-//     if (strncmp(val,"altabi.",7)) {
-//         /*  Ignore the names of the form 'altabi.name',
-//             which apply to one specific compiler.  */
-//         return 1;
-//     }
-//     if (tag == DW_TAG_compile_unit || tag == DW_TAG_partial_unit ||
-//         tag == DW_TAG_imported_unit || tag == DW_TAG_type_unit) {
-//         return 1;
-//     }
-//     return 0;
-// }
 
 /*  Traverse one DIE in order to detect self references to DIES.
     This fails to deal with changing CUs via global
