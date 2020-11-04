@@ -1450,12 +1450,6 @@ getCompilationUnitAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
         attrib = atlist[i];
 
         if (ares == DW_DLV_OK) {
-            /*  Check duplicated attributes; use brute force as the number of
-                attributes is quite small; the problem was detected with the
-                LLVM toolchain, generating more than 12 repeated attributes */
-            
-            /* Print using indentation */
-
             switch (attr) 
             {
                 case DW_AT_low_pc:
@@ -1594,6 +1588,576 @@ getCompilationUnitAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
                     break; 
                 default:
                     printf("getCompilationUnitAttributes: Skipped attribute: 0x%X\n", attr);
+
+                    break;
+            }
+        }
+        else
+        { 
+            print_error(dbg, "dwarf_whatattr entry missing", ares, podie_err);
+        }
+    }
+}
+
+static void
+getSubProgramAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
+    Dwarf_Off dieprint_cu_goffset, int level, struct srcfilesdata *sf,
+    Dwarf_Attribute *atlist, Dwarf_Signed atcnt)
+{
+    Dwarf_Error podie_err = 0;
+    Dwarf_Attribute attrib = 0;
+    int tres = 0;
+    int res = 0;
+    Dwarf_Half tag = 0;
+    Dwarf_Error paerr = 0;
+    char lesb[ESB_S_CHAR_LENGTH];
+    Dwarf_Unsigned uval = 0;
+
+    for (int i = 0; i < atcnt; i++) 
+    {
+        Dwarf_Half attr;
+        int ares;
+
+        ares = dwarf_whatattr(atlist[i], &attr, &podie_err);
+
+        attrib = atlist[i];
+
+        if (ares == DW_DLV_OK) {
+            switch (attr) 
+            {
+                case DW_AT_low_pc:
+                case DW_AT_high_pc:
+                    {
+                        Dwarf_Half theform;
+                        int rv;
+                        Dwarf_Addr addr = 0;
+
+                        rv = dwarf_whatform(attrib,&theform,&paerr);
+                        /*  Depending on the form and the attribute,
+                            process the form. */
+                        if (rv == DW_DLV_ERROR) {
+                            print_error(dbg, "dwarf_whatform cannot Find attr form",
+                                rv, paerr);
+                        } else if (rv == DW_DLV_NO_ENTRY) {
+                            break;
+                        }
+
+                        // printf("getCompilationUnitAttributes: theform: 0x%X\n", theform);
+                        
+                        if (theform != DW_FORM_addr &&
+                            theform != DW_FORM_GNU_addr_index &&
+                            theform != DW_FORM_addrx) 
+                        {
+                            res = get_small_encoding_integer_and_name(dbg,
+                                attrib,
+                                &uval,
+                                /* attrname */ (const char *) NULL,
+                                /* err_string */ ( char *) NULL,
+                                (encoding_type_func) 0,
+                                &paerr, show_form_used);
+
+                            // printf("getCompilationUnitAttributes: uval: %llu\n", uval);
+                        }
+                        else
+                        {
+                            res = dwarf_formaddr(attrib, &addr, &paerr);
+
+                            // printf("getCompilationUnitAttributes: addr: 0x%llX\n", addr);
+                        }
+                        
+                        // esb_constructor(lesb);
+
+                        // get_attr_value(dbg, tag, print_me,
+                        //     dieprint_cu_goffset,
+                        //     attrib, sf->srcfiles, sf->srcfilescount,
+                        //     lesb, show_form_used, verbose);
+
+                        // printf("getCompilationUnitAttributes: DW_AT_pc: %s\n", lesb);
+
+                        if(res == DW_DLV_OK) 
+                        {
+                            if (attr == DW_AT_low_pc) 
+                            {
+                                subProgramsTail->lowPC = addr;
+                            
+                                printf("getSubProgramAttributes: Sub Program Low PC: 0x%X\n", subProgramsTail->lowPC);
+                            } 
+                            else 
+                            { /* DW_AT_high_pc */
+                                subProgramsTail->highPC = subProgramsTail->lowPC + uval;
+
+                                printf("getSubProgramAttributes: Sub Program High PC: 0x%X (Offset: 0x%llX)\n", subProgramsTail->highPC, uval);
+                            }
+                        }
+                        else
+                        {
+                            printf("getSubProgramAttributes: res: %d\n", res);
+                        }
+                    }
+                    break;
+                case DW_AT_name:
+                case DW_AT_GNU_template_name:
+                    tres = dwarf_tag(print_me, &tag, &paerr);
+
+                    if (tres == DW_DLV_ERROR) {
+                        tag = 0;
+                    } else if (tres == DW_DLV_NO_ENTRY) {
+                        tag = 0;
+                    } else {
+                        /* ok */
+                    }
+                    
+                    esb_constructor(subProgramsTail->name);
+                    
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount,
+                        subProgramsTail->name, show_form_used,verbose);
+
+                    printf("getSubProgramAttributes: Sub Program Name: %s\n", subProgramsTail->name);
+                    
+                    break;
+
+                case DW_AT_producer:
+                    esb_constructor(lesb);
+
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount,
+                        lesb, show_form_used,verbose);
+
+                    printf("getSubProgramAttributes: DW_AT_producer: %s\n", lesb);
+
+                    break;   
+                case DW_AT_language:
+                    esb_constructor(lesb);
+
+                    get_small_encoding_integer_and_name(dbg, attrib, &uval,
+                        "DW_AT_language", lesb,
+                        get_LANG_name, &paerr,
+                        show_form_used);
+
+                    printf("getSubProgramAttributes: DW_AT_language: %s\n", lesb);
+   
+                    break;
+                case DW_AT_stmt_list:
+                    esb_constructor(lesb);
+
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount, 
+                        lesb, show_form_used,verbose);
+                    
+                    printf("getSubProgramAttributes: DW_AT_stmt_list: %s\n", lesb);
+
+                    break; 
+                case DW_AT_comp_dir:
+                    esb_constructor(lesb);
+
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount, 
+                        lesb, show_form_used,verbose);
+
+                    printf("getSubProgramAttributes: DW_AT_comp_dir: %s\n", lesb);
+                    
+                    break;
+                case DW_AT_type:
+                    {
+                    Dwarf_Off ref_goff = 0;
+
+                    res = dwarf_global_formref(attrib, &ref_goff, &paerr);
+
+                    printf("getSubProgramAttributes: Type GOFF: 0x%llX\n", ref_goff);
+
+                    /*  Check the type of type  */
+                    }
+
+                    break;
+                case DW_AT_decl_column:
+                case DW_AT_decl_file:
+                case DW_AT_decl_line:
+                {
+                    // esb_constructor(subProgramsTail->);
+                    esb_constructor(lesb);
+
+                    res = get_small_encoding_integer_and_name(dbg,
+                        attrib,
+                        &uval,
+                        /* attrname */ (const char *) NULL,
+                        /* err_string */ ( char *) NULL,
+                        (encoding_type_func) 0,
+                        &paerr, show_form_used);
+
+                    if (res == DW_DLV_OK) {
+                        Dwarf_Bool hex_format = TRUE;
+                        formx_unsigned(uval, lesb, hex_format);
+                        /* Check attribute encoding */
+                        if (glflags.gf_check_attr_encoding) {
+                            // check_attributes_encoding(attr,theform,tempud);
+                        }
+
+                        if (attr == DW_AT_decl_file || attr == DW_AT_call_file) {
+                            if (sf->srcfiles && uval > 0 &&
+                                /* ASSERT: cnt >= 0 */
+                                uval <= (Dwarf_Unsigned) sf->srcfilescount) {
+                                /*  added by user request */
+                                /*  srcfiles is indexed starting at 0, but
+                                    DW_AT_decl_file defines that 0 means no
+                                    file, so tempud 1 means the 0th entry in
+                                    srcfiles, thus tempud-1 is the correct
+                                    index into srcfiles.  */
+                                char *fname = sf->srcfiles[uval - 1];
+
+                                esb_append(lesb, " ");
+                                esb_append(lesb, fname);
+                            }
+                        }
+
+                        if (attr == DW_AT_decl_column)
+                        {
+                            printf("getSubProgramAttributes: DW_AT_decl_column: 0x%llX\n", uval);
+                        }
+                        else if (attr == DW_AT_decl_file)
+                        {
+                            printf("getSubProgramAttributes: DW_AT_decl_file: 0x%s\n", lesb);
+                        }
+                        else if (attr == DW_AT_decl_line)
+                        {
+                            printf("getSubProgramAttributes: DW_AT_decl_line: 0x%llX\n", uval);
+                        }
+                        else
+                        {
+                            printf("getSubProgramAttributes: Unknown state\n");
+                        }
+                        
+                    } else {
+                        print_error(dbg, "Cannot get encoding attribute ..",
+                            res, paerr);
+                    }
+                }
+                    break;
+                case DW_AT_frame_base:
+                    {
+                        /*  The value is a location description
+                            or location list. */
+
+                        Dwarf_Half theform = 0;
+                        Dwarf_Half directform = 0;
+
+                        esb_constructor(lesb);
+                        
+                        get_form_values(dbg,attrib, &theform, &directform);
+                        
+                        if (is_location_form(theform)) {
+                            printf("getSubProgramAttributes: DW_AT_frame_base is_location_form\n");
+
+                            get_location_list(dbg, print_me, attrib, lesb);
+                            show_form_itself(show_form_used, verbose,
+                                theform, directform, lesb);
+                        } else if (theform == DW_FORM_exprloc)  {
+                            /* int showhextoo = 1; */
+                            print_exprloc_content(dbg, print_me, attrib, 1, lesb);
+                        } else {
+                            show_attr_form_error(dbg, attr, theform, lesb);
+                        }
+
+                        printf("getSubProgramAttributes: DW_AT_frame_base: %s\n", lesb);
+                    }
+
+                    break;                    
+                default:
+                    printf("getSubProgramAttributes: Skipped attribute: 0x%X\n", attr);
+
+                    break;
+            }
+        }
+        else
+        { 
+            print_error(dbg, "dwarf_whatattr entry missing", ares, podie_err);
+        }
+    }
+}
+
+static void
+getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
+    Dwarf_Off dieprint_cu_goffset, int level, struct srcfilesdata *sf,
+    Dwarf_Attribute *atlist, Dwarf_Signed atcnt, localVariablesList *variablesListTail)
+{
+    Dwarf_Error podie_err = 0;
+    Dwarf_Attribute attrib = 0;
+    int tres = 0;
+    int res = 0;
+    Dwarf_Half tag = 0;
+    Dwarf_Error paerr = 0;
+    char lesb[ESB_S_CHAR_LENGTH];
+    Dwarf_Unsigned uval = 0;
+
+    for (int i = 0; i < atcnt; i++) 
+    {
+        Dwarf_Half attr;
+        int ares;
+
+        ares = dwarf_whatattr(atlist[i], &attr, &podie_err);
+
+        attrib = atlist[i];
+
+        if (ares == DW_DLV_OK) {
+            switch (attr) 
+            {
+                case DW_AT_name:
+                case DW_AT_GNU_template_name:
+                    tres = dwarf_tag(print_me, &tag, &paerr);
+
+                    if (tres == DW_DLV_ERROR) {
+                        tag = 0;
+                    } else if (tres == DW_DLV_NO_ENTRY) {
+                        tag = 0;
+                    } else {
+                        /* ok */
+                    }
+                    
+                    esb_constructor(variablesListTail->name);
+                    
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount,
+                        variablesListTail->name, show_form_used, verbose);
+
+                    printf("getLocalVariablesAttributes: Variable Name: %s\n", variablesListTail->name);
+                    
+                    break;
+                case DW_AT_type:
+                    {
+                    Dwarf_Off ref_goff = 0;
+
+                    res = dwarf_global_formref(attrib, &ref_goff, &paerr);
+
+                    printf("getLocalVariablesAttributes: Type GOFF: 0x%llX\n", ref_goff);
+
+                    /*  Check the type of type  */
+                    }
+
+                    break;
+                case DW_AT_decl_column:
+                case DW_AT_decl_file:
+                case DW_AT_decl_line:
+                {
+                    // esb_constructor(subProgramsTail->);
+                    esb_constructor(lesb);
+
+                    res = get_small_encoding_integer_and_name(dbg,
+                        attrib,
+                        &uval,
+                        /* attrname */ (const char *) NULL,
+                        /* err_string */ ( char *) NULL,
+                        (encoding_type_func) 0,
+                        &paerr, show_form_used);
+
+                    if (res == DW_DLV_OK) {
+                        Dwarf_Bool hex_format = TRUE;
+                        formx_unsigned(uval, lesb, hex_format);
+                        /* Check attribute encoding */
+                        if (glflags.gf_check_attr_encoding) {
+                            // check_attributes_encoding(attr,theform,tempud);
+                        }
+
+                        if (attr == DW_AT_decl_file || attr == DW_AT_call_file) {
+                            if (sf->srcfiles && uval > 0 &&
+                                /* ASSERT: cnt >= 0 */
+                                uval <= (Dwarf_Unsigned) sf->srcfilescount) {
+                                /*  added by user request */
+                                /*  srcfiles is indexed starting at 0, but
+                                    DW_AT_decl_file defines that 0 means no
+                                    file, so tempud 1 means the 0th entry in
+                                    srcfiles, thus tempud-1 is the correct
+                                    index into srcfiles.  */
+                                char *fname = sf->srcfiles[uval - 1];
+
+                                esb_append(lesb, " ");
+                                esb_append(lesb, fname);
+                            }
+                        }
+
+                        if (attr == DW_AT_decl_column)
+                        {
+                            printf("getLocalVariablesAttributes: DW_AT_decl_column: 0x%llX\n", uval);
+                        }
+                        else if (attr == DW_AT_decl_file)
+                        {
+                            printf("getLocalVariablesAttributes: DW_AT_decl_file: 0x%s\n", lesb);
+                        }
+                        else if (attr == DW_AT_decl_line)
+                        {
+                            printf("getLocalVariablesAttributes: DW_AT_decl_line: 0x%llX\n", uval);
+                        }
+                        else
+                        {
+                            printf("getLocalVariablesAttributes: Unknown state\n");
+                        }
+                        
+                    } else {
+                        print_error(dbg, "Cannot get encoding attribute ..",
+                            res, paerr);
+                    }
+                }
+                    break;
+                case DW_AT_location:
+                case DW_AT_frame_base:
+                    {
+                        /*  The value is a location description
+                            or location list. */
+
+                        Dwarf_Half theform = 0;
+                        Dwarf_Half directform = 0;
+                        Dwarf_Ptr x = 0;
+
+                        esb_constructor(lesb);
+                        
+                        get_form_values(dbg, attrib, &theform, &directform);
+                        
+                        if (is_location_form(theform)) {
+                            printf("getLocalVariablesAttributes: DW_AT_location is_location_form\n");
+
+                            get_location_list(dbg, print_me, attrib, lesb);
+                            show_form_itself(show_form_used, verbose,
+                                theform, directform, lesb);
+                        } else if (theform == DW_FORM_exprloc)  {
+                            /* int showhextoo = 1; */
+                            // print_exprloc_content(dbg, print_me, attrib, 1, lesb);
+
+                            res = dwarf_formexprloc(attrib, &uval, &x, &podie_err);
+
+                            if (res == DW_DLV_NO_ENTRY) {
+                                /* Show nothing?  Impossible. */
+                            } else if (res == DW_DLV_ERROR) {
+                                print_error(dbg, "Cannot get a  DW_FORM_exprloc....", res, podie_err);
+                            } else {
+                                Dwarf_Half address_size = 0;
+                                Dwarf_Half offset_size = 0;
+                                Dwarf_Half version = 0;
+                                int ares = 0;
+
+                                ares = dwarf_get_version_of_die(print_me, &version, &offset_size);
+                                if (ares != DW_DLV_OK) {
+                                    print_error(dbg,"ERROR: Cannot get version size for exprloc die",
+                                        DW_DLV_ERROR,podie_err);
+                                }
+
+                                ares = dwarf_get_die_address_size(print_me, &address_size, &podie_err);
+                                
+                                /*  Here res and not ares does not make sense but this is the original from dwarfdump   */
+                                if (res == DW_DLV_NO_ENTRY) {
+                                    print_error(dbg,"Cannot get die address size for exprloc", ares, podie_err);
+                                } else if (res == DW_DLV_ERROR) {
+                                    print_error(dbg,"Cannot Get die address size for exprloc", ares, podie_err);
+                                } else {
+                                    // get_string_from_locs(dbg, x, uval, address_size, 
+                                    //     offset_size, version, esbp);
+
+                                    // get_string_from_locs(Dwarf_Debug dbg,
+                                    //     Dwarf_Ptr bytes_in,
+                                    //     Dwarf_Unsigned block_len,
+                                    //     Dwarf_Half addr_size,
+                                    //     Dwarf_Half offset_size,
+                                    //     Dwarf_Half version,
+                                    //     char *out_string)
+
+                                    Dwarf_Loc_Head_c head = 0;
+                                    Dwarf_Locdesc_c locentry = 0;
+                                    int lres = 0;
+                                    Dwarf_Unsigned lopc = 0;
+                                    Dwarf_Unsigned hipc = 0;
+                                    Dwarf_Unsigned ulocentry_count = 0;
+                                    Dwarf_Unsigned section_offset = 0;
+                                    Dwarf_Unsigned locdesc_offset = 0;
+                                    Dwarf_Small lle_value = 0;
+                                    Dwarf_Small loclist_source = 0;
+                                    Dwarf_Unsigned ulistlen = 0;
+                                    
+                                    res = dwarf_loclist_from_expr_c(dbg,
+                                        x, uval,
+                                        address_size,
+                                        offset_size,
+                                        version,
+                                        &head,
+                                        &ulistlen,
+                                        &podie_err);
+
+                                    if(res == DW_DLV_NO_ENTRY) {
+                                        printf("getLocalVariablesAttributes: res == DW_DLV_NO_ENTRY\n");
+                                        break;
+                                    }
+
+                                    if(res == DW_DLV_ERROR) {
+                                        print_error(dbg, "dwarf_get_loclist_from_expr_c",
+                                            res, podie_err);
+                                    }
+
+                                    lres = dwarf_get_locdesc_entry_c(head,
+                                        0, /* Data from 0th LocDesc */
+                                        &lle_value,
+                                        &lopc, &hipc,
+                                        &ulocentry_count,
+                                        &locentry,
+                                        &loclist_source,
+                                        &section_offset,
+                                        &locdesc_offset,
+                                        &podie_err);
+
+                                    if (lres == DW_DLV_ERROR) {
+                                        print_error(dbg, "dwarf_get_locdesc_entry_c", lres, podie_err);
+                                    } else if (lres == DW_DLV_NO_ENTRY) {
+                                        printf("getLocalVariablesAttributes: res == DW_DLV_NO_ENTRY\n");
+                                        break;
+                                    }
+
+                                    Dwarf_Small op = 0;
+                                    Dwarf_Unsigned opd1 = 0;
+                                    Dwarf_Unsigned opd2 = 0;
+                                    Dwarf_Unsigned opd3 = 0;
+                                    Dwarf_Unsigned offsetforbranch = 0;
+
+                                    for (int j = 0; j < ulocentry_count; j++) {
+                                        // res = _dwarf_print_one_expr_op(dbg, NULL, locentry, j, 0, lesb2);
+
+                                        /* DWARF 2,3,4 and DWARF5 style */
+                                        res = dwarf_get_location_op_value_c(locentry,
+                                            j, &op, &opd1, &opd2, &opd3, &offsetforbranch, &podie_err);
+
+                                        switch (op) {
+                                            case DW_OP_fbreg:
+                                                // formx_signed(opd1,string_out);
+                                                // printf("getLocalVariablesAttributes: opd1: 0x%llX, opd1: 0x%llu, opd1: 0x%lld\n", opd1, opd1, opd1);
+                                                variablesListTail->relativeMemoryLocation = opd1;
+
+                                                break;
+                                            case DW_OP_addr:
+                                                printf("getLocalVariablesAttributes: op is DW_OP_addr\n");
+
+                                                break;    
+                                            default:
+                                                printf("getLocalVariablesAttributes: op is %c\n", op);
+
+                                                break;
+                                        }
+
+                                        if (res != DW_DLV_OK) {
+                                            print_error(dbg,
+                                                "dwarf_get_location_op_value_c unexpected value!",
+                                                DW_DLV_OK, podie_err);
+                                        }
+                                    }
+
+                                    // printf("getLocalVariablesAttributes: section_offset: 0x%llX, locdesc_offset: 0x%llX, lesb22: %s\n", section_offset, locdesc_offset, lesb2);
+                                }
+                            }
+                        } else {    
+                            show_attr_form_error(dbg, attr, theform, lesb);
+                        }
+
+                        // printf("getLocalVariablesAttributes: DW_AT_location: %s, variablesListTail->relativeMemoryLocation: %d\n", lesb, variablesListTail->relativeMemoryLocation);
+                        printf("getLocalVariablesAttributes: DW_AT_location offset: %d\n", variablesListTail->relativeMemoryLocation);
+                    }
+
+                    break;                    
+                default:
+                    printf("getLocalVariablesAttributes: Skipped attribute: 0x%X\n", attr);
 
                     break;
             }
@@ -1797,6 +2361,8 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 subProgramsTail->localVariablesTail->isTraced = 0;
                 subProgramsTail->localVariablesTail->compilationUnit = compilationUnitsTail;
                 subProgramsTail->localVariablesTail->next = NULL;
+
+                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->localVariablesTail);
             }
             else
             {
@@ -1838,22 +2404,26 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             subProgramsTail->compilationUnit = compilationUnitsTail;
             subProgramsTail->next = NULL;
 
+            getSubProgramAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt);    
+
             break;
         case DW_TAG_formal_parameter:
             if (subProgramsTail->formalParametersHead == NULL)
             {
-                subProgramsTail->formalParametersHead = (formalParametersList *) malloc(sizeof(formalParametersList));
+                subProgramsTail->formalParametersHead = (localVariablesList *) malloc(sizeof(localVariablesList));
 
                 subProgramsTail->formalParametersTail = subProgramsTail->formalParametersHead;
             }
             else
             {
-                subProgramsTail->formalParametersTail = (formalParametersList *) malloc(sizeof(formalParametersList));
+                subProgramsTail->formalParametersTail = (localVariablesList *) malloc(sizeof(localVariablesList));
             }
             
             subProgramsTail->formalParametersTail->isTraced = 0;
             subProgramsTail->formalParametersTail->compilationUnit = compilationUnitsTail;
             subProgramsTail->formalParametersTail->next = NULL;
+
+            getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->formalParametersTail);
 
             break;
         case DW_TAG_pointer_type:

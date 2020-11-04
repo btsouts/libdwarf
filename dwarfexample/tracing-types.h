@@ -33,21 +33,21 @@ struct globalVariablesList
     globalVariablesList		*next;
 };
 
-typedef struct formalParametersList formalParametersList;
+// typedef struct formalParametersList formalParametersList;
 
-struct formalParametersList
-{
-	char					name[COMPILATION_UNIT_STR_LEN];
-    int                     isPointer;
-    int                     isTraced;
-    int                     isDouble;
-    uint32_t                relativeMemoryLocation;
-    /*  DW_AT_decl_file */
-    /*  DW_AT_decl_line */
-    /*  DW_AT_decl_column */
-    compilationUnitList     *compilationUnit;    
-    formalParametersList	*next;
-};
+// struct formalParametersList
+// {
+// 	char					name[COMPILATION_UNIT_STR_LEN];
+//     int                     isPointer;
+//     int                     isTraced;
+//     int                     isDouble;
+//     uint32_t                relativeMemoryLocation;
+//     /*  DW_AT_decl_file */
+//     /*  DW_AT_decl_line */
+//     /*  DW_AT_decl_column */
+//     compilationUnitList     *compilationUnit;    
+//     formalParametersList	*next;
+// };
 
 typedef struct localVariablesList localVariablesList;
 
@@ -57,7 +57,7 @@ struct localVariablesList
     int                     isPointer;
     int                     isTraced;
     int                     isDouble;
-    uint32_t                relativeMemoryLocation;
+    int                     relativeMemoryLocation; /* Maybe it needs a 64 bit int  */
     /*  DW_AT_decl_file */
     /*  DW_AT_decl_line */
     /*  DW_AT_decl_column */
@@ -90,7 +90,7 @@ struct subProgramsList
     /*  DW_AT_decl_line */
     /*  DW_AT_decl_column   */
     compilationUnitList     *compilationUnit;
-    formalParametersList    *formalParametersHead, *formalParametersTail;
+    localVariablesList      *formalParametersHead, *formalParametersTail;
     localVariablesList      *localVariablesHead, *localVariablesTail;
     subProgramsList		    *next;
 };
