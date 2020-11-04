@@ -2233,6 +2233,180 @@ getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
     }
 }
 
+/*  Lookup the encoding type of a variable or pointer type, according to its global offset. */
+/*  If the search fails, then it returns 0x00   */
+static uint32_t
+lookUpBaseTypeEncoding (baseTypesList *baseTypesListHead, uint32_t targetGOffset)
+{
+    baseTypesList   *oneBaseType = baseTypesListHead;
+
+    while ((oneBaseType != NULL) && (oneBaseType->globalOffset != targetGOffset))
+    {
+        // printf("oneBaseType->globalOffset: 0x%X, targetGOffset: 0x%X\n", oneBaseType->globalOffset, targetGOffset);
+        
+        oneBaseType = oneBaseType->next;
+    }
+
+    if (oneBaseType == NULL)
+    {
+        return 0x00; /* Not found   */
+    }
+    else
+    {
+        return oneBaseType->encoding;
+    }
+    
+}
+
+static void
+getVariableTypeAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
+    Dwarf_Off dieprint_cu_goffset, int level, struct srcfilesdata *sf,
+    Dwarf_Attribute *atlist, Dwarf_Signed atcnt, baseTypesList *baseTypeNode, int isPointer)
+{
+    Dwarf_Error podie_err = 0;
+    Dwarf_Attribute attrib = 0;
+    int tres = 0;
+    int res = 0;
+    Dwarf_Half tag = 0;
+    Dwarf_Error paerr = 0;
+    char lesb[ESB_S_CHAR_LENGTH];
+    Dwarf_Unsigned uval = 0;
+
+    if (isPointer)
+    {
+        esb_constructor(baseTypeNode->name);
+        strcpy(baseTypeNode->name, "pointer");
+    }
+
+    for (int i = 0; i < atcnt; i++) 
+    {
+        Dwarf_Half attr;
+        int ares;
+
+        ares = dwarf_whatattr(atlist[i], &attr, &podie_err);
+
+        attrib = atlist[i];
+
+        if (ares == DW_DLV_OK) {
+            switch (attr) 
+            {
+                case DW_AT_name:
+                case DW_AT_GNU_template_name:
+                    if (isPointer)
+                    {
+                        printf("getVariableTypeAttributes: Pointer with DW_AT_name\n");
+                    }
+                    
+                    tres = dwarf_tag(print_me, &tag, &paerr);
+
+                    if (tres == DW_DLV_ERROR) {
+                        tag = 0;
+                    } else if (tres == DW_DLV_NO_ENTRY) {
+                        tag = 0;
+                    } else {
+                        /* ok */
+                    }
+                    
+                    esb_constructor(baseTypeNode->name);
+                    
+                    get_attr_value(dbg, tag, print_me,
+                        dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount,
+                        baseTypeNode->name, show_form_used, verbose);
+
+                    printf("getVariableTypeAttributes: Type Name: %s\n", baseTypeNode->name);
+                    
+                    break;
+                case DW_AT_type:
+                {
+                    if (!isPointer)
+                    {
+                        printf("getVariableTypeAttributes: Bate type with DW_AT_type\n");
+                    }
+                    
+                    Dwarf_Off ref_goff = 0;
+
+                    res = dwarf_global_formref(attrib, &ref_goff, &paerr);
+
+                    baseTypeNode->pointerTypeGOffset = ref_goff;
+                    
+                    printf("getVariableTypeAttributes: Pointer Type GOFF: 0x%X\n", baseTypeNode->pointerTypeGOffset);
+
+                    /*  Check the type of type  */
+                    uint32_t pointerType = lookUpBaseTypeEncoding (baseTypesHead, baseTypeNode->pointerTypeGOffset);
+
+                    printf("getVariableTypeAttributes: Pointer Type lookup: 0x%X\n", pointerType);
+
+                    /*  Even if it is double **, isFloatingPoint will not be set  -- FIXME  */
+                    if (pointerType == DW_ATE_float)
+                    {
+                        baseTypeNode->isFloatingPoint = 1;
+
+                        printf("getVariableTypeAttributes: Pointer points to floating point\n");
+                    }
+                }
+
+                    break;
+
+                case DW_AT_encoding:
+                    if (isPointer)
+                    {
+                        printf("getVariableTypeAttributes: Pointer with DW_AT_encoding\n");
+                    }
+                    // esb_constructor(lesb);
+
+                    // get_small_encoding_integer_and_name(dbg, attrib, &uval,
+                    //     "DW_AT_encoding", lesb,
+                    //     get_ATE_name, &paerr,
+                    //     show_form_used);
+
+                    // printf("getVariableTypeAttributes: DW_AT_encoding: %s, uval: 0x%llX\n", lesb, uval);
+
+                    /*  Encodings can be found in dwarf.h   */
+                    res = get_small_encoding_integer_and_name(dbg,
+                        attrib,
+                        &uval,
+                        /* attrname */ (const char *) NULL,
+                        /* err_string */ ( char *) NULL,
+                        (encoding_type_func) 0,
+                        &paerr, show_form_used);
+
+                    baseTypeNode->encoding = uval;
+
+                    printf("getVariableTypeAttributes: DW_AT_encoding: 0x%X\n", baseTypeNode->encoding);
+
+                    if (uval == DW_ATE_float)
+                    {
+                        baseTypeNode->isFloatingPoint = 1;
+                    }
+
+                    break;
+                case DW_AT_byte_size:
+                    res = get_small_encoding_integer_and_name(dbg,
+                        attrib,
+                        &uval,
+                        /* attrname */ (const char *) NULL,
+                        /* err_string */ ( char *) NULL,
+                        (encoding_type_func) 0,
+                        &paerr, show_form_used);
+
+                    baseTypeNode->byteSize = uval;
+
+                    printf("getVariableTypeAttributes: DW_AT_byte_size: 0x%X\n", baseTypeNode->byteSize);
+                    
+                    break;
+                default:
+                    printf("getVariableTypeAttributes: Skipped attribute: 0x%X\n", attr);
+
+                    break;
+            }
+        }
+        else
+        { 
+            print_error(dbg, "dwarf_whatattr entry missing", ares, podie_err);
+        }
+    }
+}
+
 static void
 resetsrcfiles(Dwarf_Debug dbg,struct srcfilesdata *sf)
 {
@@ -2380,7 +2554,9 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             }
             else
             {
-                compilationUnitsTail = (compilationUnitList *) malloc(sizeof(compilationUnitList));
+                compilationUnitsTail->next = (compilationUnitList *) malloc(sizeof(compilationUnitList));
+
+                compilationUnitsTail = compilationUnitsTail->next;
             }
             
             compilationUnitsTail->globalVariablesHead = NULL;
@@ -2401,13 +2577,19 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             }
             else
             {
-                baseTypesTail = (baseTypesList *) malloc(sizeof(baseTypesList));
+                baseTypesTail->next = (baseTypesList *) malloc(sizeof(baseTypesList));
+
+                baseTypesTail = baseTypesTail->next;
             }
             
             baseTypesTail->isPointer = 0;
+            baseTypesTail->isFloatingPoint = 0;
             baseTypesTail->globalOffset = overall_offset;
             baseTypesTail->compilationUnit = compilationUnitsTail;
             baseTypesTail->next = NULL;
+
+            getVariableTypeAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, 
+                baseTypesTail, baseTypesTail->isPointer);
 
             break;
         case DW_TAG_variable:
@@ -2421,12 +2603,14 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 }
                 else
                 {
-                    subProgramsTail->localVariablesTail = (variablesList *) malloc(sizeof(variablesList));
+                    subProgramsTail->localVariablesTail->next = (variablesList *) malloc(sizeof(variablesList));
+
+                    subProgramsTail->localVariablesTail = subProgramsTail->localVariablesTail->next;
                 }
                 
                 subProgramsTail->localVariablesTail->isPointer = 0;
                 subProgramsTail->localVariablesTail->isTraced = 0;
-                subProgramsTail->localVariablesTail->isDouble = 0;
+                subProgramsTail->localVariablesTail->isFloatingPoint = 0;
                 subProgramsTail->localVariablesTail->isExternal = 0;
                 subProgramsTail->localVariablesTail->compilationUnit = compilationUnitsTail;
                 subProgramsTail->localVariablesTail->next = NULL;
@@ -2443,12 +2627,14 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 }
                 else
                 {
-                    compilationUnitsTail->globalVariablesTail = (variablesList *) malloc(sizeof(variablesList));
+                    compilationUnitsTail->globalVariablesTail->next = (variablesList *) malloc(sizeof(variablesList));
+
+                    compilationUnitsTail->globalVariablesTail = compilationUnitsTail->globalVariablesTail->next;
                 }
                 
                 compilationUnitsTail->globalVariablesTail->isPointer = 0;
                 compilationUnitsTail->globalVariablesTail->isTraced = 0;
-                compilationUnitsTail->globalVariablesTail->isDouble = 0;
+                compilationUnitsTail->globalVariablesTail->isFloatingPoint = 0;
                 compilationUnitsTail->globalVariablesTail->isExternal = 0;
                 compilationUnitsTail->globalVariablesTail->compilationUnit = compilationUnitsTail;
                 compilationUnitsTail->globalVariablesTail->next = NULL;
@@ -2468,7 +2654,9 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             }
             else
             {
-                subProgramsTail = (subProgramsList *) malloc(sizeof(subProgramsList));
+                subProgramsTail->next = (subProgramsList *) malloc(sizeof(subProgramsList));
+
+                subProgramsTail = subProgramsTail->next;
             }
             
             subProgramsTail->formalParametersHead = NULL;
@@ -2490,17 +2678,19 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             }
             else
             {
-                subProgramsTail->formalParametersTail = (variablesList *) malloc(sizeof(variablesList));
+                subProgramsTail->formalParametersTail->next = (variablesList *) malloc(sizeof(variablesList));
+
+                subProgramsTail->formalParametersTail = subProgramsTail->formalParametersTail->next;
             }
             
             subProgramsTail->formalParametersTail->isPointer = 0;
             subProgramsTail->formalParametersTail->isTraced = 0;
-            subProgramsTail->formalParametersTail->isDouble = 0;
+            subProgramsTail->formalParametersTail->isFloatingPoint = 0;
             subProgramsTail->formalParametersTail->isExternal = 0;
             subProgramsTail->formalParametersTail->compilationUnit = compilationUnitsTail;
             subProgramsTail->formalParametersTail->next = NULL;
 
-            getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->formalParametersTail, 0);
+            getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->formalParametersTail, 1);
 
             break;
         case DW_TAG_pointer_type:
@@ -2512,13 +2702,19 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             }
             else
             {
-                baseTypesTail = (baseTypesList *) malloc(sizeof(baseTypesList));
+                baseTypesTail->next = (baseTypesList *) malloc(sizeof(baseTypesList));
+
+                baseTypesTail = baseTypesTail->next;
             }
             
             baseTypesTail->isPointer = 1;
+            baseTypesTail->isFloatingPoint = 0;
             baseTypesTail->globalOffset = overall_offset;
             baseTypesTail->compilationUnit = compilationUnitsTail;
             baseTypesTail->next = NULL;
+
+            getVariableTypeAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, 
+                baseTypesTail, baseTypesTail->isPointer);
 
             break;
         case DW_TAG_subrange_type:

@@ -57,7 +57,7 @@ struct variablesList
 	char					name[COMPILATION_UNIT_STR_LEN];
     int                     isPointer;
     int                     isTraced;
-    int                     isDouble;
+    int                     isFloatingPoint;
     int                     isExternal;
     
     union { /* Maybe it needs a 64 bit data types  */
@@ -78,8 +78,15 @@ struct baseTypesList
 {
 	char					name[COMPILATION_UNIT_STR_LEN];
     int                     isPointer;
-    int                     isDouble;
+    int                     isFloatingPoint;
     uint32_t                globalOffset;
+    uint32_t                byteSize;
+    
+    union { 
+        uint32_t            encoding;    
+        uint32_t            pointerTypeGOffset; /* Maybe it needs a 64 bit data types  */
+    };
+
     compilationUnitList     *compilationUnit;    
     baseTypesList	        *next;
 };
@@ -90,7 +97,7 @@ struct subProgramsList
 {
 	char					name[COMPILATION_UNIT_STR_LEN];
     int                     isPointer;
-    int                     isDouble;
+    int                     isFloatingPoint;
     uint32_t                lowPC;
     uint32_t                highPC;
     /*  DW_AT_decl_file */
