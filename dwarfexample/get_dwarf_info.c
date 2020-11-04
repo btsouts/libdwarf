@@ -113,7 +113,7 @@ compilationUnitList     *compilationUnitsHead=NULL, *compilationUnitsTail=NULL;
 // variablesList           *variablesHead, *variablesTail;
 baseTypesList           *baseTypesHead=NULL, *baseTypesTail=NULL;
 subProgramsList         *subProgramsHead=NULL, *subProgramsTail=NULL;
-globalVariablesList     *globalVariablesHead=NULL, *globalVariablesTail=NULL;
+// globalVariablesList     *globalVariablesHead=NULL, *globalVariablesTail=NULL;
 int                     withinSubProgram = 0;
 
 static void read_cu_list(Dwarf_Debug dbg, Dwarf_Bool is_info);
@@ -1878,7 +1878,7 @@ getSubProgramAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
 static void
 getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
     Dwarf_Off dieprint_cu_goffset, int level, struct srcfilesdata *sf,
-    Dwarf_Attribute *atlist, Dwarf_Signed atcnt, localVariablesList *variablesListTail)
+    Dwarf_Attribute *atlist, Dwarf_Signed atcnt, variablesList *variablesListTail, int isLocalScope)
 {
     Dwarf_Error podie_err = 0;
     Dwarf_Attribute attrib = 0;
@@ -1996,6 +1996,44 @@ getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
                             res, paerr);
                     }
                 }
+                    break;
+                case DW_AT_external:
+                {
+                    Dwarf_Half theform = 0;
+                    // esb_constructor(lesb);
+                    
+                    // get_attr_value(dbg, tag, print_me,
+                    //     dieprint_cu_goffset,attrib, sf->srcfiles, sf->srcfilescount,
+                    //     lesb, show_form_used, verbose);
+                    res = dwarf_whatform(attrib, &theform, &paerr);
+
+                    /*  Depending on the form and the attribute, process the form. */
+                    if (res == DW_DLV_ERROR) 
+                    {
+                        print_error(dbg, "dwarf_whatform cannot Find Attr Form", res, paerr);
+                    } 
+                    else if (res == DW_DLV_NO_ENTRY) 
+                    {
+                        printf("getLocalVariablesAttributes: DW_AT_external: DW_DLV_NO_ENTRY\n");
+                    }
+
+                    if (theform == DW_FORM_flag_present)
+                    {
+                        if (isLocalScope)
+                        {
+                            printf("getLocalVariablesAttributes: Non global scope but DW_AT_external 1\n");   
+                        }
+                        
+                        variablesListTail->isExternal = 1;
+
+                        printf("getLocalVariablesAttributes: DW_AT_external: 1\n");   
+                    }
+                    else
+                    {
+                        printf("getLocalVariablesAttributes: Unknown theform: 0x%X\n", theform);
+                    }
+                }
+
                     break;
                 case DW_AT_location:
                 case DW_AT_frame_base:
@@ -2124,11 +2162,30 @@ getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
                                             case DW_OP_fbreg:
                                                 // formx_signed(opd1,string_out);
                                                 // printf("getLocalVariablesAttributes: opd1: 0x%llX, opd1: 0x%llu, opd1: 0x%lld\n", opd1, opd1, opd1);
-                                                variablesListTail->relativeMemoryLocation = opd1;
+                                                
+                                                if (isLocalScope)
+                                                {
+                                                    variablesListTail->relativeMemoryLocation = opd1;
+                                                }
+                                                else
+                                                {
+                                                    printf("getLocalVariablesAttributes: Global scope but DW_OP_fbreg offset\n");
+
+                                                    variablesListTail->memoryAddress = opd1;
+                                                }
 
                                                 break;
                                             case DW_OP_addr:
-                                                printf("getLocalVariablesAttributes: op is DW_OP_addr\n");
+                                                if (isLocalScope)
+                                                {
+                                                    printf("getLocalVariablesAttributes: Non global scope but DW_OP_addr\n");
+
+                                                    variablesListTail->relativeMemoryLocation = opd1;
+                                                }
+                                                else
+                                                {
+                                                    variablesListTail->memoryAddress = opd1;
+                                                }
 
                                                 break;    
                                             default:
@@ -2152,7 +2209,14 @@ getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
                         }
 
                         // printf("getLocalVariablesAttributes: DW_AT_location: %s, variablesListTail->relativeMemoryLocation: %d\n", lesb, variablesListTail->relativeMemoryLocation);
-                        printf("getLocalVariablesAttributes: DW_AT_location offset: %d\n", variablesListTail->relativeMemoryLocation);
+                        if (isLocalScope)
+                        {
+                            printf("getLocalVariablesAttributes: DW_AT_location offset: %d\n", variablesListTail->relativeMemoryLocation);
+                        }
+                        else
+                        {
+                            printf("getLocalVariablesAttributes: DW_AT_location address: 0x%X\n", variablesListTail->memoryAddress);
+                        }
                     }
 
                     break;                    
@@ -2319,6 +2383,8 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 compilationUnitsTail = (compilationUnitList *) malloc(sizeof(compilationUnitList));
             }
             
+            compilationUnitsTail->globalVariablesHead = NULL;
+            compilationUnitsTail->globalVariablesTail = NULL;
             compilationUnitsTail->next = NULL;
 
             withinSubProgram = 0;
@@ -2349,37 +2415,45 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             {
                 if (subProgramsTail->localVariablesHead == NULL)
                 {
-                    subProgramsTail->localVariablesHead = (localVariablesList *) malloc(sizeof(localVariablesList));
+                    subProgramsTail->localVariablesHead = (variablesList *) malloc(sizeof(variablesList));
 
                     subProgramsTail->localVariablesTail = subProgramsTail->localVariablesHead;
                 }
                 else
                 {
-                    subProgramsTail->localVariablesTail = (localVariablesList *) malloc(sizeof(localVariablesList));
+                    subProgramsTail->localVariablesTail = (variablesList *) malloc(sizeof(variablesList));
                 }
                 
+                subProgramsTail->localVariablesTail->isPointer = 0;
                 subProgramsTail->localVariablesTail->isTraced = 0;
+                subProgramsTail->localVariablesTail->isDouble = 0;
+                subProgramsTail->localVariablesTail->isExternal = 0;
                 subProgramsTail->localVariablesTail->compilationUnit = compilationUnitsTail;
                 subProgramsTail->localVariablesTail->next = NULL;
 
-                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->localVariablesTail);
+                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->localVariablesTail, withinSubProgram);
             }
             else
             {
-                if (globalVariablesHead == NULL)
+                if (compilationUnitsTail->globalVariablesHead == NULL)
                 {
-                    globalVariablesHead = (globalVariablesList *) malloc(sizeof(globalVariablesList));
+                    compilationUnitsTail->globalVariablesHead = (variablesList *) malloc(sizeof(variablesList));
 
-                    globalVariablesTail = globalVariablesHead;
+                    compilationUnitsTail->globalVariablesTail = compilationUnitsTail->globalVariablesHead;
                 }
                 else
                 {
-                    globalVariablesTail = (globalVariablesList *) malloc(sizeof(globalVariablesList));
+                    compilationUnitsTail->globalVariablesTail = (variablesList *) malloc(sizeof(variablesList));
                 }
                 
-                globalVariablesTail->isTraced = 0;
-                globalVariablesTail->compilationUnit = compilationUnitsTail;
-                globalVariablesTail->next = NULL;
+                compilationUnitsTail->globalVariablesTail->isPointer = 0;
+                compilationUnitsTail->globalVariablesTail->isTraced = 0;
+                compilationUnitsTail->globalVariablesTail->isDouble = 0;
+                compilationUnitsTail->globalVariablesTail->isExternal = 0;
+                compilationUnitsTail->globalVariablesTail->compilationUnit = compilationUnitsTail;
+                compilationUnitsTail->globalVariablesTail->next = NULL;
+
+                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, compilationUnitsTail->globalVariablesTail, withinSubProgram);
             }
 
             break;
@@ -2410,20 +2484,23 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
         case DW_TAG_formal_parameter:
             if (subProgramsTail->formalParametersHead == NULL)
             {
-                subProgramsTail->formalParametersHead = (localVariablesList *) malloc(sizeof(localVariablesList));
+                subProgramsTail->formalParametersHead = (variablesList *) malloc(sizeof(variablesList));
 
                 subProgramsTail->formalParametersTail = subProgramsTail->formalParametersHead;
             }
             else
             {
-                subProgramsTail->formalParametersTail = (localVariablesList *) malloc(sizeof(localVariablesList));
+                subProgramsTail->formalParametersTail = (variablesList *) malloc(sizeof(variablesList));
             }
             
+            subProgramsTail->formalParametersTail->isPointer = 0;
             subProgramsTail->formalParametersTail->isTraced = 0;
+            subProgramsTail->formalParametersTail->isDouble = 0;
+            subProgramsTail->formalParametersTail->isExternal = 0;
             subProgramsTail->formalParametersTail->compilationUnit = compilationUnitsTail;
             subProgramsTail->formalParametersTail->next = NULL;
 
-            getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->formalParametersTail);
+            getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->formalParametersTail, 0);
 
             break;
         case DW_TAG_pointer_type:
