@@ -109,12 +109,12 @@ boolean show_form_used = FALSE;
 
 /*  Allocate variables for lists    */
 compilationUnitList     *compilationUnitsHead=NULL, *compilationUnitsTail=NULL;
-// formalParametersList    *formalParametersHead, *formalParametersTail;
-// variablesList           *variablesHead, *variablesTail;
 baseTypesList           *baseTypesHead=NULL, *baseTypesTail=NULL;
 subProgramsList         *subProgramsHead=NULL, *subProgramsTail=NULL;
-// globalVariablesList     *globalVariablesHead=NULL, *globalVariablesTail=NULL;
 int                     withinSubProgram = 0;
+
+static void
+getTypeForVariable(baseTypesList *baseTypesListHead, variablesList *targetVariable, uint32_t targetGOffset);
 
 static void read_cu_list(Dwarf_Debug dbg, Dwarf_Bool is_info);
 static void print_die_data(Dwarf_Debug dbg, Dwarf_Die print_me,
@@ -1375,6 +1375,42 @@ read_cu_list(Dwarf_Debug dbg, Dwarf_Bool is_info)
         dwarf_dealloc(dbg,cu_die,DW_DLA_DIE);
         resetsrcfiles(dbg,&sf);
     }
+
+    variablesList *oneVariable;
+    subProgramsList *oneSubProgram;
+
+    printf("\nGlobal scope variables:\n");
+
+    for (oneVariable = compilationUnitsHead->globalVariablesHead; oneVariable != NULL; oneVariable = oneVariable->next)
+    {
+        getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
+    
+        printf("Variable: %s isPointer: %d isFloatingPoint: %d\n", 
+            oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
+    }
+
+    printf("\nSubprograms:\n");
+
+    for (oneSubProgram = subProgramsHead; oneSubProgram != NULL; oneSubProgram = oneSubProgram->next)
+    {
+        printf("Subprogram %s:\n", oneSubProgram->name);
+
+        for (oneVariable = oneSubProgram->formalParametersHead; oneVariable != NULL; oneVariable = oneVariable->next)
+        {
+            getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
+
+            printf("Formal Parameter: %s isPointer: %d isFloatingPoint: %d byteSize: %d\n",
+                oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
+        }
+
+        for (oneVariable = oneSubProgram->localVariablesHead; oneVariable != NULL; oneVariable = oneVariable->next)
+        {
+            getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
+
+            printf("Local variable: %s isPointer: %d isFloatingPoint: %d\n", 
+                oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
+        }
+    }
 }
 
 static void
@@ -1425,6 +1461,68 @@ get_die_and_siblings(Dwarf_Debug dbg, Dwarf_Die in_die,
         print_die_data(dbg,cur_die,in_level,sf);
     }
     return;
+}
+
+/*  Lookup the encoding type of a variable or pointer type, according to its global offset. */
+/*  If the search fails, then it returns 0x00   */
+static uint32_t
+lookUpBaseTypeEncoding(baseTypesList *baseTypesListHead, uint32_t targetGOffset)
+{
+    baseTypesList   *oneBaseType = baseTypesListHead;
+
+    while ((oneBaseType != NULL) && (oneBaseType->globalOffset != targetGOffset))
+    {
+        // printf("oneBaseType->globalOffset: 0x%X, targetGOffset: 0x%X\n", oneBaseType->globalOffset, targetGOffset);
+        
+        oneBaseType = oneBaseType->next;
+    }
+
+    if (oneBaseType == NULL)
+    {
+        return 0x00; /* Not found   */
+    }
+    else
+    {
+        return oneBaseType->encoding;
+    }
+}
+
+static void
+getTypeForVariable(baseTypesList *baseTypesListHead, variablesList *targetVariable, uint32_t targetGOffset)
+{
+    baseTypesList   *oneBaseType = baseTypesListHead;
+
+    while ((oneBaseType != NULL) && (oneBaseType->globalOffset != targetGOffset))
+    {
+        // printf("oneBaseType->globalOffset: 0x%X, targetGOffset: 0x%X\n", oneBaseType->globalOffset, targetGOffset);
+        
+        oneBaseType = oneBaseType->next;
+    }
+
+    if (oneBaseType == NULL)
+    {
+        // return 0x00; /* Not found   */
+    }
+    else
+    {
+        // return oneBaseType->encoding;
+
+        if (oneBaseType->isPointer)
+        {
+            targetVariable->isPointer = 1;
+
+            /*  Delegate this choice to when the pointer type is created    */
+            targetVariable->isFloatingPoint = oneBaseType->isFloatingPoint;
+
+            // getTypeForVariable(baseTypesListHead, targetVariable, oneBaseType->pointerTypeGOffset)
+        }
+        else
+        {
+            targetVariable->isPointer = 0;
+
+            targetVariable->isFloatingPoint = oneBaseType->isFloatingPoint;
+        }
+    }
 }
 
 static void
@@ -1759,15 +1857,17 @@ getSubProgramAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
                     
                     break;
                 case DW_AT_type:
-                    {
+                {
                     Dwarf_Off ref_goff = 0;
 
                     res = dwarf_global_formref(attrib, &ref_goff, &paerr);
 
-                    printf("getSubProgramAttributes: Type GOFF: 0x%llX\n", ref_goff);
+                    subProgramsTail->typeGlobalOffset = ref_goff;
+
+                    printf("getSubProgramAttributes: Type GOFF: 0x%X\n", subProgramsTail->typeGlobalOffset);
 
                     /*  Check the type of type  */
-                    }
+                }
 
                     break;
                 case DW_AT_decl_column:
@@ -1923,15 +2023,20 @@ getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
                     
                     break;
                 case DW_AT_type:
-                    {
+                {
                     Dwarf_Off ref_goff = 0;
 
                     res = dwarf_global_formref(attrib, &ref_goff, &paerr);
 
-                    printf("getLocalVariablesAttributes: Type GOFF: 0x%llX\n", ref_goff);
+                    variablesListTail->typeGlobalOffset = ref_goff;
 
-                    /*  Check the type of type  */
-                    }
+                    printf("getLocalVariablesAttributes: Type GOFF: 0x%X\n", variablesListTail->typeGlobalOffset );
+
+                    // getTypeForVariable(baseTypesHead, variablesListTail, ref_goff);
+
+                    // printf("getLocalVariablesAttributes: isPointer: %d isFloatingPoint: %d\n", 
+                    //     variablesListTail->isPointer,variablesListTail->isFloatingPoint);
+                }
 
                     break;
                 case DW_AT_decl_column:
@@ -2233,31 +2338,6 @@ getLocalVariablesAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
     }
 }
 
-/*  Lookup the encoding type of a variable or pointer type, according to its global offset. */
-/*  If the search fails, then it returns 0x00   */
-static uint32_t
-lookUpBaseTypeEncoding (baseTypesList *baseTypesListHead, uint32_t targetGOffset)
-{
-    baseTypesList   *oneBaseType = baseTypesListHead;
-
-    while ((oneBaseType != NULL) && (oneBaseType->globalOffset != targetGOffset))
-    {
-        // printf("oneBaseType->globalOffset: 0x%X, targetGOffset: 0x%X\n", oneBaseType->globalOffset, targetGOffset);
-        
-        oneBaseType = oneBaseType->next;
-    }
-
-    if (oneBaseType == NULL)
-    {
-        return 0x00; /* Not found   */
-    }
-    else
-    {
-        return oneBaseType->encoding;
-    }
-    
-}
-
 static void
 getVariableTypeAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
     Dwarf_Off dieprint_cu_goffset, int level, struct srcfilesdata *sf,
@@ -2269,7 +2349,6 @@ getVariableTypeAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
     int res = 0;
     Dwarf_Half tag = 0;
     Dwarf_Error paerr = 0;
-    char lesb[ESB_S_CHAR_LENGTH];
     Dwarf_Unsigned uval = 0;
 
     if (isPointer)
@@ -2320,7 +2399,7 @@ getVariableTypeAttributes(Dwarf_Debug dbg, Dwarf_Die print_me,
                 {
                     if (!isPointer)
                     {
-                        printf("getVariableTypeAttributes: Bate type with DW_AT_type\n");
+                        printf("getVariableTypeAttributes: Base type with DW_AT_type\n");
                     }
                     
                     Dwarf_Off ref_goff = 0;
@@ -2612,6 +2691,7 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 subProgramsTail->localVariablesTail->isTraced = 0;
                 subProgramsTail->localVariablesTail->isFloatingPoint = 0;
                 subProgramsTail->localVariablesTail->isExternal = 0;
+                subProgramsTail->localVariablesTail->typeGlobalOffset = 0x00;
                 subProgramsTail->localVariablesTail->compilationUnit = compilationUnitsTail;
                 subProgramsTail->localVariablesTail->next = NULL;
 
@@ -2636,6 +2716,7 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 compilationUnitsTail->globalVariablesTail->isTraced = 0;
                 compilationUnitsTail->globalVariablesTail->isFloatingPoint = 0;
                 compilationUnitsTail->globalVariablesTail->isExternal = 0;
+                compilationUnitsTail->globalVariablesTail->typeGlobalOffset = 0x00;
                 compilationUnitsTail->globalVariablesTail->compilationUnit = compilationUnitsTail;
                 compilationUnitsTail->globalVariablesTail->next = NULL;
 
@@ -2687,6 +2768,7 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             subProgramsTail->formalParametersTail->isTraced = 0;
             subProgramsTail->formalParametersTail->isFloatingPoint = 0;
             subProgramsTail->formalParametersTail->isExternal = 0;
+            subProgramsTail->formalParametersTail->typeGlobalOffset = 0x00;
             subProgramsTail->formalParametersTail->compilationUnit = compilationUnitsTail;
             subProgramsTail->formalParametersTail->next = NULL;
 
@@ -2709,6 +2791,32 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             
             baseTypesTail->isPointer = 1;
             baseTypesTail->isFloatingPoint = 0;
+            baseTypesTail->globalOffset = overall_offset;
+            baseTypesTail->compilationUnit = compilationUnitsTail;
+            baseTypesTail->next = NULL;
+
+            getVariableTypeAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, 
+                baseTypesTail, baseTypesTail->isPointer);
+
+            break;
+        case DW_TAG_array_type:
+            /*  Consider DW_TAG_array_type as a DW_TAG_pointer_type with byteSize 0x00 */
+            if (baseTypesHead == NULL)
+            {
+                baseTypesHead = (baseTypesList *) malloc(sizeof(baseTypesList));
+
+                baseTypesTail = baseTypesHead;
+            }
+            else
+            {
+                baseTypesTail->next = (baseTypesList *) malloc(sizeof(baseTypesList));
+
+                baseTypesTail = baseTypesTail->next;
+            }
+            
+            baseTypesTail->isPointer = 1;
+            baseTypesTail->isFloatingPoint = 0;
+            baseTypesTail->byteSize = 0;
             baseTypesTail->globalOffset = overall_offset;
             baseTypesTail->compilationUnit = compilationUnitsTail;
             baseTypesTail->next = NULL;

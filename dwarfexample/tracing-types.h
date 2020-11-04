@@ -52,6 +52,11 @@ struct compilationUnitList
 //     formalParametersList	*next;
 // };
 
+/* *argv[] -> pointer to pointer 
+ * *argv[15] -> pointer to pointer
+ * double srcA[128] -> pointer
+ */
+
 struct variablesList
 {
 	char					name[COMPILATION_UNIT_STR_LEN];
@@ -59,6 +64,7 @@ struct variablesList
     int                     isTraced;
     int                     isFloatingPoint;
     int                     isExternal;
+    uint32_t                typeGlobalOffset;
     
     union { /* Maybe it needs a 64 bit data types  */
         uint32_t            memoryAddress;    
@@ -98,6 +104,7 @@ struct subProgramsList
 	char					name[COMPILATION_UNIT_STR_LEN];
     int                     isPointer;
     int                     isFloatingPoint;
+    uint32_t                typeGlobalOffset;
     uint32_t                lowPC;
     uint32_t                highPC;
     /*  DW_AT_decl_file */
@@ -108,3 +115,5 @@ struct subProgramsList
     variablesList           *localVariablesHead, *localVariablesTail;
     subProgramsList		    *next;
 };
+
+
