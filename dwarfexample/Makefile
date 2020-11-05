@@ -57,6 +57,9 @@ frame1: $(srcdir)/frame1.c
 get_dwarf_info: $(srcdir)/get_dwarf_info.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c
 	$(CC) $(CFLAGS) $(srcdir)/get_dwarf_info.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c -o $@ $(LDFLAGS)
 
+sf_dwarf_parse: $(srcdir)/dwarfdump-functions.c $(srcdir)/dwarf-parsing.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c
+	$(CC) $(CFLAGS) $(srcdir)/dwarfdump-functions.c $(srcdir)/dwarf-parsing.c $(srcdir)/../dwarfdump/naming.c $(srcdir)/../dwarfdump/helpertree.c $(srcdir)/../dwarfdump/dwarf_tsearchbal.c $(srcdir)/../dwarfdump/addrmap.c $(srcdir)/../dwarfdump/checkutil.c -o $@ $(LDFLAGS)
+
 install: all
 	echo do no install
 
