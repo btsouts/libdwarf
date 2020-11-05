@@ -111,10 +111,12 @@ boolean show_form_used = FALSE;
 compilationUnitList     *compilationUnitsHead=NULL, *compilationUnitsTail=NULL;
 baseTypesList           *baseTypesHead=NULL, *baseTypesTail=NULL;
 subProgramsList         *subProgramsHead=NULL, *subProgramsTail=NULL;
-int                     withinSubProgram = 0;
 
 static void
 getTypeForVariable(baseTypesList *baseTypesListHead, variablesList *targetVariable, uint32_t targetGOffset);
+
+static void
+getTypeForSubProgram(baseTypesList *baseTypesListHead, subProgramsList *targetSubProgram, uint32_t targetGOffset);
 
 static void read_cu_list(Dwarf_Debug dbg, Dwarf_Bool is_info);
 static void print_die_data(Dwarf_Debug dbg, Dwarf_Die print_me,
@@ -1292,7 +1294,7 @@ read_cu_list(Dwarf_Debug dbg, Dwarf_Bool is_info)
 
 
     // for(;;++cu_number) {
-    for(;cu_number<1;cu_number++) {    
+    for(;cu_number<3;cu_number++) {    
         Dwarf_Die no_die = 0;
         Dwarf_Die cu_die = 0;
         int res = DW_DLV_ERROR;
@@ -1376,39 +1378,51 @@ read_cu_list(Dwarf_Debug dbg, Dwarf_Bool is_info)
         resetsrcfiles(dbg,&sf);
     }
 
+    compilationUnitList *oneCompilationUnit;
     variablesList *oneVariable;
     subProgramsList *oneSubProgram;
 
-    printf("\nGlobal scope variables:\n");
-
-    for (oneVariable = compilationUnitsHead->globalVariablesHead; oneVariable != NULL; oneVariable = oneVariable->next)
+    for (oneCompilationUnit = compilationUnitsHead; oneCompilationUnit != NULL; oneCompilationUnit = oneCompilationUnit->next)
     {
-        getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
-    
-        printf("Variable: %s isPointer: %d isFloatingPoint: %d\n", 
-            oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
-    }
+        printf("\n----Compilation unit %s----\n", oneCompilationUnit->name);
 
-    printf("\nSubprograms:\n");
+        printf("Global scope variables:\n");
 
-    for (oneSubProgram = subProgramsHead; oneSubProgram != NULL; oneSubProgram = oneSubProgram->next)
-    {
-        printf("Subprogram %s:\n", oneSubProgram->name);
-
-        for (oneVariable = oneSubProgram->formalParametersHead; oneVariable != NULL; oneVariable = oneVariable->next)
+        for (oneVariable = oneCompilationUnit->globalVariablesHead; oneVariable != NULL; oneVariable = oneVariable->next)
         {
             getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
-
-            printf("Formal Parameter: %s isPointer: %d isFloatingPoint: %d byteSize: %d\n",
+        
+            printf("Variable: %s\t\tisPointer: %d\t\tisFloatingPoint: %d\n", 
                 oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
         }
 
-        for (oneVariable = oneSubProgram->localVariablesHead; oneVariable != NULL; oneVariable = oneVariable->next)
-        {
-            getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
+        printf("\nSubprograms:\n");
 
-            printf("Local variable: %s isPointer: %d isFloatingPoint: %d\n", 
-                oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
+        for (oneSubProgram = subProgramsHead; oneSubProgram != NULL; oneSubProgram = oneSubProgram->next)
+        {
+            if (oneSubProgram->compilationUnit == oneCompilationUnit)
+            {
+                getTypeForSubProgram(baseTypesHead, oneSubProgram, oneSubProgram->typeGlobalOffset);
+                
+                printf("\nSubprogram: %s\t\tisPointer: %d\t\tisFloatingPoint: %d\n", 
+                    oneSubProgram->name, oneSubProgram->isPointer, oneSubProgram->isFloatingPoint);
+
+                for (oneVariable = oneSubProgram->formalParametersHead; oneVariable != NULL; oneVariable = oneVariable->next)
+                {
+                    getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
+
+                    printf("Formal Parameter: %s\t\tisPointer: %d\t\tisFloatingPoint: %d\n", 
+                        oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
+                }
+
+                for (oneVariable = oneSubProgram->localVariablesHead; oneVariable != NULL; oneVariable = oneVariable->next)
+                {
+                    getTypeForVariable(baseTypesHead, oneVariable, oneVariable->typeGlobalOffset);
+
+                    printf("Local variable: %s\t\tisPointer: %d\t\tisFloatingPoint: %d\n", 
+                        oneVariable->name, oneVariable->isPointer, oneVariable->isFloatingPoint);
+                }
+            }
         }
     }
 }
@@ -1521,6 +1535,44 @@ getTypeForVariable(baseTypesList *baseTypesListHead, variablesList *targetVariab
             targetVariable->isPointer = 0;
 
             targetVariable->isFloatingPoint = oneBaseType->isFloatingPoint;
+        }
+    }
+}
+
+static void
+getTypeForSubProgram(baseTypesList *baseTypesListHead, subProgramsList *targetSubProgram, uint32_t targetGOffset)
+{
+    baseTypesList   *oneBaseType = baseTypesListHead;
+
+    while ((oneBaseType != NULL) && (oneBaseType->globalOffset != targetGOffset))
+    {
+        // printf("oneBaseType->globalOffset: 0x%X, targetGOffset: 0x%X\n", oneBaseType->globalOffset, targetGOffset);
+        
+        oneBaseType = oneBaseType->next;
+    }
+
+    if (oneBaseType == NULL)
+    {
+        // return 0x00; /* Not found   */
+    }
+    else
+    {
+        // return oneBaseType->encoding;
+
+        if (oneBaseType->isPointer)
+        {
+            targetSubProgram->isPointer = 1;
+
+            /*  Delegate this choice to when the pointer type is created    */
+            targetSubProgram->isFloatingPoint = oneBaseType->isFloatingPoint;
+
+            // getTypeForVariable(baseTypesListHead, targetVariable, oneBaseType->pointerTypeGOffset)
+        }
+        else
+        {
+            targetSubProgram->isPointer = 0;
+
+            targetSubProgram->isFloatingPoint = oneBaseType->isFloatingPoint;
         }
     }
 }
@@ -2536,6 +2588,8 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
     Dwarf_Off overall_offset = 0;
     int ores = 0;
 
+    static scopeType currentScope = kNoScope;
+
     if (passnullerror) {
         errp = 0;
     } else {
@@ -2642,7 +2696,7 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             compilationUnitsTail->globalVariablesTail = NULL;
             compilationUnitsTail->next = NULL;
 
-            withinSubProgram = 0;
+            currentScope = kCompileUnitScope;
 
             getCompilationUnitAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt);
 
@@ -2672,32 +2726,8 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
 
             break;
         case DW_TAG_variable:
-            if (withinSubProgram)
-            {
-                if (subProgramsTail->localVariablesHead == NULL)
-                {
-                    subProgramsTail->localVariablesHead = (variablesList *) malloc(sizeof(variablesList));
-
-                    subProgramsTail->localVariablesTail = subProgramsTail->localVariablesHead;
-                }
-                else
-                {
-                    subProgramsTail->localVariablesTail->next = (variablesList *) malloc(sizeof(variablesList));
-
-                    subProgramsTail->localVariablesTail = subProgramsTail->localVariablesTail->next;
-                }
-                
-                subProgramsTail->localVariablesTail->isPointer = 0;
-                subProgramsTail->localVariablesTail->isTraced = 0;
-                subProgramsTail->localVariablesTail->isFloatingPoint = 0;
-                subProgramsTail->localVariablesTail->isExternal = 0;
-                subProgramsTail->localVariablesTail->typeGlobalOffset = 0x00;
-                subProgramsTail->localVariablesTail->compilationUnit = compilationUnitsTail;
-                subProgramsTail->localVariablesTail->next = NULL;
-
-                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->localVariablesTail, withinSubProgram);
-            }
-            else
+            
+            if (currentScope == kCompileUnitScope)
             {
                 if (compilationUnitsTail->globalVariablesHead == NULL)
                 {
@@ -2720,12 +2750,45 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 compilationUnitsTail->globalVariablesTail->compilationUnit = compilationUnitsTail;
                 compilationUnitsTail->globalVariablesTail->next = NULL;
 
-                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, compilationUnitsTail->globalVariablesTail, withinSubProgram);
+                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, compilationUnitsTail->globalVariablesTail, 0);
             }
+            else if (currentScope == kSubProgramScope)
+            {
+                if (subProgramsTail->localVariablesHead == NULL)
+                {
+                    subProgramsTail->localVariablesHead = (variablesList *) malloc(sizeof(variablesList));
 
+                    subProgramsTail->localVariablesTail = subProgramsTail->localVariablesHead;
+                }
+                else
+                {
+                    subProgramsTail->localVariablesTail->next = (variablesList *) malloc(sizeof(variablesList));
+
+                    subProgramsTail->localVariablesTail = subProgramsTail->localVariablesTail->next;
+                }
+                
+                subProgramsTail->localVariablesTail->isPointer = 0;
+                subProgramsTail->localVariablesTail->isTraced = 0;
+                subProgramsTail->localVariablesTail->isFloatingPoint = 0;
+                subProgramsTail->localVariablesTail->isExternal = 0;
+                subProgramsTail->localVariablesTail->typeGlobalOffset = 0x00;
+                subProgramsTail->localVariablesTail->compilationUnit = compilationUnitsTail;
+                subProgramsTail->localVariablesTail->next = NULL;
+
+                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->localVariablesTail, 1);
+            }
+            else if (currentScope == kSubRoutineScope)
+            {
+                printf("DW_TAG_variable in kSubRoutineScope\n");
+            }
+            else
+            {
+                printf("Weird scope: %d in DW_TAG_variable\n", currentScope);
+            }
+            
             break;
         case DW_TAG_subprogram:
-            withinSubProgram = 1;
+            currentScope = kSubProgramScope;
 
             if (subProgramsHead == NULL)
             {
@@ -2744,35 +2807,51 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
             subProgramsTail->formalParametersTail = NULL;
             subProgramsTail->localVariablesHead = NULL;
             subProgramsTail->localVariablesTail = NULL;
+            subProgramsTail->isPointer = 0;
+            subProgramsTail->isFloatingPoint = 0;
+            subProgramsTail->typeGlobalOffset = 0x0;
             subProgramsTail->compilationUnit = compilationUnitsTail;
             subProgramsTail->next = NULL;
 
-            getSubProgramAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt);    
+            getSubProgramAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt); 
+    
+            printf("DW_TAG_subprogram scope: %d\n", currentScope);
 
             break;
         case DW_TAG_formal_parameter:
-            if (subProgramsTail->formalParametersHead == NULL)
+            if (currentScope == kSubProgramScope)
             {
-                subProgramsTail->formalParametersHead = (variablesList *) malloc(sizeof(variablesList));
+                if (subProgramsTail->formalParametersHead == NULL)
+                {
+                    subProgramsTail->formalParametersHead = (variablesList *) malloc(sizeof(variablesList));
 
-                subProgramsTail->formalParametersTail = subProgramsTail->formalParametersHead;
+                    subProgramsTail->formalParametersTail = subProgramsTail->formalParametersHead;
+                }
+                else
+                {
+                    subProgramsTail->formalParametersTail->next = (variablesList *) malloc(sizeof(variablesList));
+
+                    subProgramsTail->formalParametersTail = subProgramsTail->formalParametersTail->next;
+                }
+                
+                subProgramsTail->formalParametersTail->isPointer = 0;
+                subProgramsTail->formalParametersTail->isTraced = 0;
+                subProgramsTail->formalParametersTail->isFloatingPoint = 0;
+                subProgramsTail->formalParametersTail->isExternal = 0;
+                subProgramsTail->formalParametersTail->typeGlobalOffset = 0x00;
+                subProgramsTail->formalParametersTail->compilationUnit = compilationUnitsTail;
+                subProgramsTail->formalParametersTail->next = NULL;
+
+                getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->formalParametersTail, 1);
+            }
+            else if (currentScope == kSubRoutineScope)
+            {
+                /*  Skip for now    */
             }
             else
             {
-                subProgramsTail->formalParametersTail->next = (variablesList *) malloc(sizeof(variablesList));
-
-                subProgramsTail->formalParametersTail = subProgramsTail->formalParametersTail->next;
+                printf("Weird scope: %d in DW_TAG_formal_parameter\n", currentScope);
             }
-            
-            subProgramsTail->formalParametersTail->isPointer = 0;
-            subProgramsTail->formalParametersTail->isTraced = 0;
-            subProgramsTail->formalParametersTail->isFloatingPoint = 0;
-            subProgramsTail->formalParametersTail->isExternal = 0;
-            subProgramsTail->formalParametersTail->typeGlobalOffset = 0x00;
-            subProgramsTail->formalParametersTail->compilationUnit = compilationUnitsTail;
-            subProgramsTail->formalParametersTail->next = NULL;
-
-            getLocalVariablesAttributes(dbg, print_me, dieprint_cu_goffset, level, sf, atlist, atcnt, subProgramsTail->formalParametersTail, 1);
 
             break;
         case DW_TAG_pointer_type:
@@ -2825,8 +2904,18 @@ print_die_data_i(Dwarf_Debug dbg, Dwarf_Die print_me,
                 baseTypesTail, baseTypesTail->isPointer);
 
             break;
+        case DW_TAG_subroutine_type:
+            currentScope = kSubRoutineScope;
+
+            break;
         case DW_TAG_subrange_type:
         case DW_TAG_lexical_block:
+        /*  DW_TAG_const_type   */
+        /*  DW_TAG_structure_type   */
+        /*  DW_TAG_member   */
+        /*  DW_TAG_typedef  */
+        /*  DW_TAG_enumeration_type */
+        /*  DW_TAG_enumerator   */
         default:
             break;
     } 

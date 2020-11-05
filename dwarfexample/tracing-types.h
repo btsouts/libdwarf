@@ -116,4 +116,13 @@ struct subProgramsList
     subProgramsList		    *next;
 };
 
+typedef enum
+{
+	kNoScope,
+    kCompileUnitScope,
+	kSubProgramScope,
+	kSubRoutineScope,
+	kScopeMax,
+} scopeType;
+
 
